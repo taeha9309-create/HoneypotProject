@@ -230,3 +230,6 @@ cowrie-logs/
 # 세션 이동 때 딸려 온 로컬 데이터·테스트 파일
 data_cyberlab/
 work/
+
+# 제출용 문서는 저장소에 올리지 않음
+docs/MVP_구현계획.md
