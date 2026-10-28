@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# 허니팟 프로젝트 전용
+*.pem
+keys/
+raw/
+data/
+*.db
+cowrie-logs/
