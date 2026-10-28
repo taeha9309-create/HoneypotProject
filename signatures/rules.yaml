@@ -1,0 +1,166 @@
+# 시그니처 규칙
+#
+# type: behavior = 공격 단계(정찰, 지속성 ...)를 잡는 규칙. 캠페인 카드의 단계 시퀀스·ATT&CK에 쓴다
+#       campaign = 특정 공격 집단의 고유 흔적. 정답 세트 라벨링과 결과 검증에 쓴다
+# patterns: 정규식 목록. 세션의 명령어 한 줄이라도 하나에 맞으면 그 규칙이 걸린 것
+# coverage: 2019-10-01~11-07 CyberLab SSH 명령어 세션 11,755개 기준 (규칙 초안 때 측정)
+
+- id: B01
+  name: 시스템 사양 조사
+  type: behavior
+  stage: 정찰
+  attack: T1082
+  patterns:
+    - '/proc/cpuinfo'
+    - '\bfree\s+-[mgh]'
+    - '\blscpu\b'
+    - '\buname\b'
+    - '\bnproc\b'
+    - '(^|[;&|]\s*)top\b'
+    - 'crontab\s+-l'
+    - 'cat\s+/bin/(echo|ls|busybox)\b'  # 실행 파일 머리(ELF)로 CPU 종류 알아내기
+
+- id: B02
+  name: 접속자·계정 확인
+  type: behavior
+  stage: 정찰
+  attack: T1033
+  patterns:
+    - '(^|[;&|]\s*)(w|who|whoami|id|last)\s*($|[;&|])'
+
+- id: B03
+  name: 비밀번호 변경
+  type: behavior
+  stage: 계정 장악
+  attack: T1098
+  patterns:
+    - '\bchpasswd\b'
+    - '(^|[;&|]\s*)passwd\b'
+
+- id: B04
+  name: SSH 키 심기
+  type: behavior
+  stage: 지속성
+  attack: T1098.004
+  patterns:
+    - 'authorized_keys'
+
+- id: B05
+  name: crontab에 작업 등록
+  type: behavior
+  stage: 지속성
+  attack: T1053.003
+  patterns:
+    - '\bcrontab\s+(?!-l)'
+    - '/etc/cron'
+    - '/var/spool/cron'
+
+- id: B06
+  name: 명령 기록 끄기
+  type: behavior
+  stage: 방어 회피
+  attack: T1562.003
+  patterns:
+    - '\bunset\s+[^;]*HIST'
+    - 'HISTFILE'
+    - 'HISTSIZE=0'
+    - '\bhistory\s+-c'
+
+- id: B07
+  name: 로그 지우기
+  type: behavior
+  stage: 방어 회피
+  attack: T1070.002
+  patterns:
+    - '(rm|>)\s*[^;|&]*(/var/log|wtmp|utmp|lastlog|\.bash_history)'
+
+- id: B08
+  name: 파일 내려받기
+  type: behavior
+  stage: 도구 반입
+  attack: T1105
+  patterns:
+    - '\b(wget|curl|tftp|ftpget)\b'
+    - '\bscp\s'
+
+- id: B09
+  name: base64로 숨긴 코드 풀기
+  type: behavior
+  stage: 방어 회피
+  attack: T1140
+  patterns:
+    - '\bbase64\s+(--decode|-d)'
+
+- id: B10
+  name: 스크립트 실행
+  type: behavior
+  stage: 실행
+  attack: T1059.004
+  patterns:
+    - '\|\s*(ba)?sh\b'
+    - '\b(perl|python[23]?)\s+\S+'
+    - '(^|[;&|]\s*)\./\S+'
+    - '\bsh\s+\S+\.sh\b'
+    - '\bnohup\b'
+
+- id: B11
+  name: 실행 권한 주기
+  type: behavior
+  stage: 방어 회피
+  attack: T1222.002
+  patterns:
+    - '\bchmod\s+(\+x|[0-7]?7[0-7]{2})'
+
+- id: B12
+  name: 경쟁 프로세스 죽이기
+  type: behavior
+  stage: 영향
+  attack: T1489  # 근사 매핑
+  patterns:
+    - '\b(pkill|killall)\b'
+    - '\bkill\s+-9\b'
+
+- id: B13
+  name: 채굴기 흔적
+  type: behavior
+  stage: 영향
+  attack: T1496
+  patterns:
+    - 'xmrig'
+    - 'stratum\+tcp'
+    - '\bminerd\b'
+    - 'cryptonight'
+
+- id: C01
+  name: Outlaw dota 채굴 봇넷
+  type: campaign
+  note: 'Outlaw 그룹 소행으로 알려짐 — 보고서에 쓰기 전 출처 확인 필요'
+  patterns:
+    - 'dota'
+    - '/var/tmp/\.var03522123'
+    - '/tmp/up\.txt'
+
+- id: C02
+  name: SSH 키 심기 키트
+  type: campaign
+  patterns:
+    - '\.ssh/\.auth_k'
+
+- id: C03
+  name: 로그 삭제 키트
+  type: campaign
+  patterns:
+    - 'rm -rf /var/log/wtmp'
+
+- id: C04
+  name: Perl 봇 (read.txt)
+  type: campaign
+  patterns:
+    - '\bread\.txt\b'
+
+- id: C05
+  name: 셸 스크립트 다운로더 (njs.sh / bins.sh)
+  type: campaign
+  note: '여러 서버 IP에서 같은 스크립트 이름을 받아 chmod 후 sh로 실행'
+  patterns:
+    - '\b(njs|bins)\.sh\b'
