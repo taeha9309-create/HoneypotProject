@@ -5,7 +5,7 @@
                                [--examples B10]
 
 다시 돌리면 signature_hits를 지우고 새로 채운다(규칙을 고친 뒤 다시 돌리면 된다).
-요약 비율은 테스트 접속(excluded=1)을 뺀, 명령어가 있는 SSH 세션 기준이다.
+요약 비율은 테스트 접속(excluded=1)을 뺀, 명령어가 있는 SSH/Telnet 세션 기준이다.
 """
 import argparse
 import re
@@ -15,6 +15,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 import yaml
+
+from command_behaviors import DETECTORS, observe
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signature_hits (
@@ -36,13 +38,18 @@ def load_rules(path):
     if dupes:
         sys.exit(f"규칙 ID 중복: {dupes}")
     for r in rules:
+        detector = r.get("detector")
+        if detector is not None and detector not in DETECTORS:
+            sys.exit(f"{r['id']}: 알 수 없는 detector: {detector}")
+        if detector is not None and "sequence" in r:
+            sys.exit(f"{r['id']}: detector와 sequence는 함께 쓸 수 없다")
         if r.get("type") not in ("behavior", "campaign"):
             sys.exit(f"{r['id']}: type은 behavior 또는 campaign이어야 한다")
         field = "sequence" if "sequence" in r else "patterns"
         if field == "sequence" and "patterns" in r:
             sys.exit(f"{r['id']}: patterns와 sequence는 함께 쓸 수 없다")
-        patterns = r.get(field)
-        if (not isinstance(patterns, list) or not patterns
+        patterns = r.get(field, [] if detector else None)
+        if (not isinstance(patterns, list) or (not patterns and not detector)
                 or any(not isinstance(p, str) or not p for p in patterns)
                 or (field == "sequence" and len(patterns) < 2)):
             sys.exit(f"{r['id']}: {field}에 유효한 정규식 목록이 필요하다")
@@ -71,13 +78,17 @@ def iter_sessions(con):
 def match(rules, cmds):
     """세션 하나에 대해 {rule_id: (first_ts, n_hits)}를 돌려준다."""
     hits = {}
+    observations = ({cmd: observe(cmd) for _, cmd in cmds}
+                    if any(r.get("detector") for r in rules) else {})
     for r in rules:
         if "sequence" in r:
             paths = sequence_matches(r["regex"], cmds)
             if paths:
                 hits[r["id"]] = (paths[0][0][0], len(paths))
             continue
-        matched = [ts for ts, cmd in cmds if any(rx.search(cmd) for rx in r["regex"])]
+        matched = [ts for ts, cmd in cmds
+                   if any(rx.search(cmd) for rx in r["regex"])
+                   or r.get("detector") in observations.get(cmd, set())]
         if matched:
             hits[r["id"]] = (matched[0], len(matched))
     return hits
@@ -154,13 +165,15 @@ def main():
     counted = {
         (s, sid) for s, sid in con.execute(
             "SELECT source, session_id FROM sessions "
-            "WHERE n_commands > 0 AND excluded = 0 AND protocol = 'ssh'"
+            "WHERE n_commands > 0 AND excluded = 0 AND protocol IN ('ssh', 'telnet')"
         )
     }
 
     totals = Counter()  # source별 대상 세션 수
     rule_counts = defaultdict(Counter)  # source -> rule_id -> 세션 수
     no_campaign = Counter()
+    any_rule = Counter()
+    campaign_ids = {r["id"] for r in rules if r["type"] == "campaign"}
     examples = Counter()
     example_rule = next((r for r in rules if r["id"] == args.examples), None)
 
@@ -177,7 +190,8 @@ def main():
             totals[source] += 1
             for rid in hits:
                 rule_counts[source][rid] += 1
-            if not any(rid.startswith("C") for rid in hits):
+            any_rule[source] += bool(hits)
+            if not campaign_ids.intersection(hits):
                 no_campaign[source] += 1
             if example_rule and example_rule["id"] in hits:
                 if "sequence" in example_rule:
@@ -185,12 +199,14 @@ def main():
                         examples[" -> ".join(cmd for _, cmd in path)[:120]] += 1
                     continue
                 for _, cmd in cmds:
-                    if any(rx.search(cmd) for rx in example_rule["regex"]):
+                    if (any(rx.search(cmd) for rx in example_rule["regex"])
+                            or example_rule.get("detector") in observe(cmd)):
                         examples[cmd[:120]] += 1
 
     for source in sorted(totals):
         n = totals[source]
-        print(f"\n[{source}] 명령어가 있는 SSH 세션 {n:,}개 (테스트 제외)")
+        print(f"\n[{source}] 명령어가 있는 SSH/Telnet 세션 {n:,}개 (테스트 제외)")
+        print(f"  하나 이상 규칙 일치: {any_rule[source]:,} ({any_rule[source] / n:.1%})")
         for r in rules:
             k = rule_counts[source][r["id"]]
             print(f"  {r['id']}  {k:>7,}  {k / n:6.1%}  {r['name']}")

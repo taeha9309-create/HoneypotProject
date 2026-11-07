@@ -11,6 +11,7 @@
   type: behavior
   stage: 정찰
   attack: T1082
+  detector: self_exe_read
   patterns:
     - '/proc/cpuinfo'
     - '\bfree\s+-[mgh]'
@@ -34,17 +35,19 @@
   type: behavior
   stage: 계정 장악
   attack: T1098
+  detector: password_change
+  note: '기존 patterns 판정을 보존하고 명령 위치의 NAME=value passwd/chpasswd 변형을 추가한다. 새 detector는 조회·도움말·인용 예시를 제외하지만 기존 정규식의 오탐 한계는 남는다. 변경 성공은 보장하지 않는다.'
   patterns:
     - '\bchpasswd\b'
     - '(^|[;&|]\s*)passwd\b'
 
 - id: B04
-  name: SSH 키 심기
+  name: SSH 인증 키 파일 쓰기 시도
   type: behavior
   stage: 지속성
   attack: T1098.004
-  patterns:
-    - 'authorized_keys'
+  detector: ssh_key_write
+  note: 'literal .ssh/authorized_keys(2) 경로의 stdout 쓰기, cp/mv 목적지 또는 tee 대상 관측. 조회·검색·백업 복사는 제외한다. 실제 키 유효성·적용·악성 여부는 확정하지 않는다.'
 
 - id: B05
   name: crontab에 작업 등록
@@ -97,6 +100,7 @@
   type: behavior
   stage: 실행
   attack: T1059.004
+  detector: shell_script
   patterns:
     - '\|\s*(ba)?sh\b'
     - '\b(perl|python[23]?)\s+\S+'
@@ -173,7 +177,48 @@
   attack: T1059.004
   note: '명령 입력의 행동 순서만 검사한다. 동일 파일 여부나 실행 성공을 보장하지 않는다.'
   sequence:
-    - '(?:^|[;&|])\s*(?:wget|curl)\s+[^;&|\n]+'
+    - '(?:^|[;&|(\s])\s*(?:(?:/bin/)?busybox\s+)?(?:wget|curl|tftp)\s+[^;&|\n]+'
     - '(?:^|[;&|])\s*chmod\s+(?:\+x|[0-7]?7[0-7]{2})\s+[^;&|\n]+'
     - '(?:^|[;&|])\s*(?:\./[^\s;&|]+|(?:ba)?sh\s+[^\s;&|]+\.sh)'
 
+
+# detector는 따옴표 밖의 명령 위치에서만 관측한다. 악성/성공 판정이 아니다.
+- id: B14
+  name: 16진수 문자열을 파일로 기록
+  type: behavior
+  stage: 도구 반입
+  attack: T1027
+  detector: hex_file_write
+  note: 'echo/printf의 연속된 hex escape 4바이트 이상과 파일 리다이렉션 관측. 내용 실행·악성 여부는 보장하지 않는다.'
+
+- id: B15
+  name: 방화벽 규칙 비우기
+  type: behavior
+  stage: 방어 회피
+  attack: T1562.004
+  detector: firewall_flush
+  note: 'iptables/ip6tables의 -F 또는 --flush 입력 관측. 관리 작업도 일치할 수 있다.'
+
+- id: S02
+  name: Base64 디코딩 결과를 인터프리터로 전달
+  type: behavior
+  stage: 실행
+  attack: T1059
+  detector: decode_pipeline
+  note: '같은 입력에서 base64 -d/--decode의 stdout이 파이프로 bash/sh/perl의 프로그램 표준입력에 직접 연결된 구문. 악성 여부·디코딩 성공·실행 성공은 확정하지 않는다. 명령 치환·서브셸·후보 명령의 리다이렉션 등은 보수적으로 제외한다.'
+
+- id: B16
+  name: 임시 파일 쓰기·읽기·삭제 점검
+  type: behavior
+  stage: 정찰
+  attack: T1083
+  detector: file_write_probe
+  note: '한 입력에서 같은 literal 경로에 echo/printf 출력→cat→rm을 순차 관측. 디렉터리 작업 가능 여부 탐색 후보로 근사 매핑하며 정상 배포 점검도 일치한다. 쓰기 성공·악성 판정이 아니다.'
+
+- id: B17
+  name: 실행 파일 위치·속성 조사
+  type: behavior
+  stage: 정찰
+  attack: T1518
+  detector: binary_inspection
+  note: 'which, command -v/-V, type -p/-P와 제한된 ls/stat $(which PROGRAM) 입력 관측. 명령 치환을 실행하지 않으며 정상 관리 작업도 일치한다.'
