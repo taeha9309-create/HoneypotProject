@@ -2,7 +2,7 @@
 
 사용법:
     python ml/cluster.py fit    [--db data/honeypot.db] [--out ml/out] [--models ml/models]
-                                [--mcs N [--ms N]] [--max-copies 50]
+                                [--mcs N [--ms N]] [--max-copies 50] [--ip-cap N]
     python ml/cluster.py assign [--db data/honeypot.db] [--out ml/out] [--models ml/models]
 
 fit: 지금까지의 세션으로 정규화 → TF-IDF → SVD → HDBSCAN을 학습해 ml/models/<protocol>.joblib에
@@ -36,14 +36,19 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import normalize as l2_normalize
 
-TEST_IP = "211.238.109.139"  # ingest의 excluded와 별개로 한 번 더 뺀다
+# 우리가 직접 접속한 테스트 IP. ingest의 excluded와 별개로 한 번 더 뺀다(ingest.TEST_IPS에 없는 것도 있음)
+TEST_IPS = ("211.238.109.139", "211.238.109.168", "211.108.129.43")
 PROTOCOLS = ("ssh", "telnet")
 NORMALIZE_VERSION = 3  # 2: /dev·/sys·/proc 경로는 <FILE> 제외, '/'로 시작하면 <B64> 제외. 3: 줄바꿈도 나눔. 정규화 규칙을 바꾸면 올린다. 모델과 다르면 assign이 멈추고 fit을 요구한다
 MAX_COPIES = 50  # 세션 단위 HDBSCAN에서 같은 시퀀스를 최대 몇 개까지 복제할지 (0 = 제한 없음)
-HDBSCAN_GRID = [(mcs, ms) for mcs in (10, 25, 50, 100) for ms in (1, 5, None)]  # None = mcs와 같음
+IP_CAP = 0  # 같은 (src_ip, 정규화 시퀀스)를 최대 몇 세션까지 셀지 (0 = 제한 없음). 한 IP의 반복이 군집 크기를 좌우하는 것을 막는 실험용
+HDBSCAN_GRID = [(mcs, ms) for mcs in (10, 25, 50, 100) for ms in (1, 5, mcs)]  # 비교용
+FINAL_MCS, FINAL_MS = 10, 10
+FINAL_REASON = ("2026-11-07 syd Telnet 데이터 기준. 큰 군집 4개는 mcs=25/ms=25와 같고, "
+                ".ptmx 드로퍼와 짧은 탐색 명령(shell ; sh, busybox SORA/LZRD)을 별도 군집으로 분리하며 "
+                "노이즈가 33→11세션으로 줄어 공격 구분 목적에 더 맞음")
 UNIQUE_SIZES = (5, 10, 20)  # 비교용: 고유 시퀀스 단위 HDBSCAN
 DBSCAN_EPS = (0.1, 0.2, 0.3, 0.5)
-MAX_NOISE = 0.2  # 파라미터 선택 규칙: 노이즈가 이보다 많은 설정은 고르지 않는다
 OUTLIER_QUANTILE = 0.95  # 신규 패턴 후보: 프로토콜별 이상 점수 상위 5%
 RECENT_DAYS = 7  # 신규 패턴 후보: 데이터의 마지막 시각 기준 최근 7일 안에 처음 나온 군집
 
@@ -136,10 +141,11 @@ def load_sessions(con):
         """
         SELECT s.source, s.session_id, s.protocol, s.src_ip, c.ts, c.command
         FROM sessions s JOIN commands c USING (source, session_id)
-        WHERE s.excluded = 0 AND s.src_ip IS NOT ? AND s.n_commands > 0
+        WHERE s.excluded = 0 AND s.n_commands > 0
+          AND (s.src_ip IS NULL OR s.src_ip NOT IN ({}))
         ORDER BY s.source, s.session_id, c.ts, c.rowid
-        """,
-        (TEST_IP,),
+        """.format(", ".join("?" * len(TEST_IPS))),
+        TEST_IPS,
     )
     sessions = {}
     for source, sid, protocol, ip, ts, cmd in rows:
@@ -177,6 +183,15 @@ def replicate(weights, max_copies):
     rows = np.repeat(np.arange(len(copies)), copies)
     first = np.concatenate(([0], np.cumsum(copies)[:-1]))
     return rows, first
+
+
+def seq_weights(keys, norm, sessions, index, ip_cap=IP_CAP):
+    """고유 시퀀스별 가중치(세션 수). ip_cap이면 같은 (src_ip, 시퀀스)는 최대 ip_cap개까지만 센다."""
+    per_ip = Counter((sessions[k]["src_ip"], index[norm[k]]) for k in keys)
+    w = Counter()
+    for (_, i), n in per_ip.items():
+        w[i] += min(n, ip_cap) if ip_cap else n
+    return [w[i] for i in range(len(index))]
 
 
 def size_order(labels, weights):
@@ -221,7 +236,7 @@ def compare(X, Z, weights, max_copies):
     rows, first = replicate(weights, max_copies)
     for mcs, ms in HDBSCAN_GRID:
         if len(rows) > mcs:
-            add("hdbscan", f"mcs={mcs},ms={ms or mcs}",
+            add("hdbscan", f"mcs={mcs},ms={ms}",
                 lambda: hdbscan.HDBSCAN(min_cluster_size=mcs, min_samples=ms).fit_predict(Z[rows])[first],
                 mcs=mcs, ms=ms)
     for mcs in UNIQUE_SIZES:
@@ -242,26 +257,14 @@ def compare(X, Z, weights, max_copies):
     return out
 
 
-def choose(results, mcs=None, ms=None):
-    """최종 HDBSCAN 설정과 고른 이유."""
-    if mcs:
-        return mcs, ms, "--mcs/--ms로 직접 지정"
-    cands = [r for r in results if r["model"] == "hdbscan" and r["n_clusters"] >= 2]
-    ok = [r for r in cands if r["noise"] <= MAX_NOISE and r["silhouette"] is not None]
-    if ok:
-        r = max(ok, key=lambda r: r["silhouette"])
-        return r["mcs"], r["ms"], (f"군집 2개 이상·노이즈 {MAX_NOISE:.0%} 이하인 설정 {len(ok)}개 중 "
-                                   f"실루엣 최대 ({r['silhouette']:.3f}, 노이즈 {r['noise']:.1%})")
-    if cands:
-        r = min(cands, key=lambda r: r["noise"])
-        return r["mcs"], r["ms"], (f"노이즈 {MAX_NOISE:.0%} 이하이면서 실루엣이 있는 설정이 없어 "
-                                   f"군집 2개 이상 중 노이즈 최소 ({r['noise']:.1%})")
-    return None
-
-
 # ---------------------------------------------------------------- fit
 
-def fit(con, out_dir, models_dir, mcs=None, ms=None, max_copies=MAX_COPIES):
+def fit(con, out_dir, models_dir, mcs=None, ms=None, max_copies=MAX_COPIES, ip_cap=IP_CAP):
+    if mcs:
+        reason = "--mcs/--ms로 직접 지정"
+        ms = ms or mcs
+    else:
+        mcs, ms, reason = FINAL_MCS, FINAL_MS, FINAL_REASON
     con.executescript(SCHEMA)
     sessions = load_sessions(con)
     n_null = sum(s["protocol"] is None for s in sessions.values())
@@ -282,24 +285,24 @@ def fit(con, out_dir, models_dir, mcs=None, ms=None, max_copies=MAX_COPIES):
             print("  고유 시퀀스가 2개 미만이라 학습하지 않는다")
             continue
         index = {seq: i for i, seq in enumerate(uniq)}
-        counts = Counter(index[norm[k]] for k in keys)
-        weights = [counts[i] for i in range(len(uniq))]
+        weights = seq_weights(keys, norm, sessions, index, ip_cap)
         vec, svd, X, Z = features(uniq)
 
         t = time.perf_counter()
         results = compare(X, Z, weights, max_copies)
         print(f"  비교 {len(results)}개 설정 {time.perf_counter() - t:.1f}초")
-        picked = choose(results, mcs, ms)
-        if picked is None:
-            print("  HDBSCAN이 군집을 2개 이상 만든 설정이 없어 학습하지 않는다")
-            tables[proto] = (results, None)
-            continue
-        f_mcs, f_ms, reason = picked
-        params = f"mcs={f_mcs},ms={f_ms or f_mcs},max_copies={max_copies}"
+        tables[proto] = (results, (mcs, ms))
+        params = f"mcs={mcs},ms={ms},max_copies={max_copies},ip_cap={ip_cap}"
 
         rows, first = replicate(weights, max_copies)
-        clf = hdbscan.HDBSCAN(min_cluster_size=f_mcs, min_samples=f_ms, prediction_data=True).fit(Z[rows])
+        if len(rows) <= mcs:
+            print(f"  점이 {len(rows)}개라 mcs={mcs}로 학습할 수 없다")
+            continue
+        clf = hdbscan.HDBSCAN(min_cluster_size=mcs, min_samples=ms, prediction_data=True).fit(Z[rows])
         raw = clf.labels_[first]
+        if len(set(raw) - {-1}) < 2:
+            print(f"  {params}에서 군집이 2개 미만이라 모델을 저장하지 않는다")
+            continue
         order = size_order(raw, weights)
         labels = np.array([order[int(lab)] for lab in raw])
         w = np.asarray(weights)
@@ -319,15 +322,16 @@ def fit(con, out_dir, models_dir, mcs=None, ms=None, max_copies=MAX_COPIES):
                 [(*k, proto, params, int(labels[i]), int(labels[i] == -1), float(scores[i]),
                   float(probs[i]), trained_at) for k in keys for i in [index[norm[k]]]],
             )
-        tables[proto] = (results, (f_mcs, f_ms))
         notes[proto] = (params, reason, labels, weights)
 
-    write_comparison(out_dir, tables, notes, trained_at, max_copies)
+    write_comparison(out_dir, tables, notes, trained_at, max_copies, ip_cap)
     write_outputs(con, out_dir)
 
 
-def write_comparison(out_dir, tables, notes, trained_at, max_copies):
-    definition = ("노이즈 비율: 세션 기준. 해시는 세션 1개짜리 시퀀스를 노이즈로 셈. "
+def write_comparison(out_dir, tables, notes, trained_at, max_copies, ip_cap):
+    definition = ("노이즈 비율: 세션 기준"
+                  f"{f'(같은 IP·시퀀스는 최대 {ip_cap}개로 센 가중치)' if ip_cap else ''}. "
+                  "해시는 세션 1개짜리 시퀀스를 노이즈로 셈. "
                   "실루엣: 노이즈 제외 고유 시퀀스, TF-IDF 코사인. "
                   f"hdbscan = 세션 단위(같은 시퀀스 최대 {max_copies or '무제한'}개 복제, mcs가 세션 수 기준), "
                   "hdbscan_uniq = 고유 시퀀스 단위(mcs가 고유 시퀀스 수 기준), "
@@ -337,14 +341,14 @@ def write_comparison(out_dir, tables, notes, trained_at, max_copies):
         w.writerow(["protocol", "model", "params", "n_clusters", "noise", "silhouette", "seconds", "chosen"])
         for proto, (results, final) in tables.items():
             for r in results:
-                chosen = final is not None and r["model"] == "hdbscan" and (r["mcs"], r["ms"]) == final
+                chosen = proto in notes and r["model"] == "hdbscan" and (r["mcs"], r["ms"]) == final
                 w.writerow([proto, r["model"], r["params"], r["n_clusters"], f"{r['noise']:.4f}",
                             "" if r["silhouette"] is None else f"{r['silhouette']:.4f}",
                             f"{r['seconds']:.2f}", int(chosen)])
 
     md = [f"# HDBSCAN 파라미터 선택\n\n학습 시각: {trained_at} / 정규화 규칙 버전: {NORMALIZE_VERSION}\n",
-          f"선택 규칙: 세션 단위 HDBSCAN 중 군집 2개 이상, 노이즈 {MAX_NOISE:.0%} 이하인 설정에서 "
-          "실루엣이 가장 높은 것. 없으면 군집 2개 이상 중 노이즈가 가장 적은 것.\n",
+          f"최종 설정은 코드에 고정(mcs={FINAL_MCS}, ms={FINAL_MS}). 아래 비교표를 보고 사람이 골랐다. "
+          "데이터가 바뀌면 표를 다시 보고 FINAL_MCS/FINAL_MS와 이유를 고친다.\n",
           f"정의: {definition}\n"]
     for proto, (results, final) in tables.items():
         print(f"\n[{proto}] 방법·파라미터별 결과 (* = 최종)")
@@ -354,7 +358,7 @@ def write_comparison(out_dir, tables, notes, trained_at, max_copies):
             md.append(f"최종: `{notes[proto][0]}`  \n이유: {notes[proto][1]}\n")
         md.append("\n| model | params | 군집 수 | 노이즈 | 실루엣 | 초 |\n|---|---|---|---|---|---|")
         for r in results:
-            chosen = final is not None and r["model"] == "hdbscan" and (r["mcs"], r["ms"]) == final
+            chosen = proto in notes and r["model"] == "hdbscan" and (r["mcs"], r["ms"]) == final
             sil = "-" if r["silhouette"] is None else f"{r['silhouette']:.3f}"
             mark = "*" if chosen else " "
             print(f" {mark}{r['model']:13} {r['params']:12} {r['n_clusters']:>6,} {r['noise']:>7.1%} "
@@ -515,14 +519,16 @@ def main():
     parser.add_argument("--db", default="data/honeypot.db")
     parser.add_argument("--out", default="ml/out")
     parser.add_argument("--models", default="ml/models")
-    parser.add_argument("--mcs", type=int, help="fit: min_cluster_size 직접 지정 (기본: 비교 후 규칙으로 선택)")
+    parser.add_argument("--mcs", type=int, help=f"fit: min_cluster_size 직접 지정 (기본: 고정값 {FINAL_MCS})")
     parser.add_argument("--ms", type=int, help="fit: min_samples 직접 지정 (기본: mcs와 같음)")
     parser.add_argument("--max-copies", type=int, default=MAX_COPIES,
                         help=f"fit: 같은 시퀀스 최대 복제 수 (기본 {MAX_COPIES}, 0 = 세션 전부)")
+    parser.add_argument("--ip-cap", type=int, default=IP_CAP,
+                        help=f"fit: 같은 (src_ip, 시퀀스)를 최대 몇 세션까지 셀지 (기본 {IP_CAP}, 0 = 제한 없음)")
     args = parser.parse_args()
     con = sqlite3.connect(args.db)
     if args.command == "fit":
-        fit(con, args.out, args.models, args.mcs, args.ms, args.max_copies)
+        fit(con, args.out, args.models, args.mcs, args.ms, args.max_copies, args.ip_cap)
     else:
         assign(con, args.out, args.models)
     con.close()

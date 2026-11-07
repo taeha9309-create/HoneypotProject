@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 import ingest
-from ml.cluster import TEST_IP, assign, fit, normalize_part, normalize_session, split_command
+from ml.cluster import TEST_IPS, assign, fit, normalize_part, normalize_session, seq_weights, split_command
 
 
 class NormalizeTests(unittest.TestCase):
@@ -69,13 +69,22 @@ def ingest_events(con, tmp, name, events):
     ingest.save(con, 'syd', *ingest.collect(log)[:4])
 
 
+class WeightTests(unittest.TestCase):
+    def test_ip_cap(self):
+        sessions = {('s', i): {'src_ip': ip} for i, ip in enumerate(['a'] * 8 + ['b'] * 2 + ['a'])}
+        norm = {k: ('x',) if k[1] < 10 else ('y',) for k in sessions}
+        index = {('x',): 0, ('y',): 1}
+        self.assertEqual(seq_weights(list(sessions), norm, sessions, index, 0), [10, 1])
+        self.assertEqual(seq_weights(list(sessions), norm, sessions, index, 5), [7, 1])  # a 8→5, b 2
+
+
 class PipelineTests(unittest.TestCase):
     def test_fit_then_assign(self):
         events = []
         for i in range(15):
             events += attack(f'recon{i:02d}', f'203.0.113.{i}', RECON, i)
             events += attack(f'drop{i:02d}', f'203.0.113.{100 + i}', DROPPER, i)
-        events += attack('mine', TEST_IP, RECON, 0)
+        events += attack('mine', TEST_IPS[0], RECON, 0)
         events += [event('noproto', '198.51.100.9', 'cowrie.command.input', 1, input='uname -a')]
         with tempfile.TemporaryDirectory() as tmp, closing(sqlite3.connect(Path(tmp, 'h.db'))) as con:
             con.executescript(ingest.SCHEMA)
@@ -90,7 +99,7 @@ class PipelineTests(unittest.TestCase):
 
             # 새 세션 하나만 저장된 모델로 배정되고 테스트 IP 세션은 여전히 빠진다
             ingest_events(con, tmp, 'cowrie.json.1', attack('newdrop', '192.0.2.7', DROPPER, 77)
-                          + attack('mine2', TEST_IP, DROPPER, 1))
+                          + attack('mine2', TEST_IPS[2], DROPPER, 1))
             with redirect_stdout(io.StringIO()):
                 assign(con, out, models)
             rows = {sid: (c, by) for sid, c, by in con.execute(
