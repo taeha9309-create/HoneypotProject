@@ -1,10 +1,12 @@
 """Recognize direct decoder-to-interpreter pipes without running shell input.
 
 Only a limited literal shell subset is accepted. Substitutions, subshells,
-here-documents and redirected candidate commands are deliberately unsupported.
+here-documents and redirected candidate commands are deliberately unsupported,
+apart from an optional trailing literal stderr sink to /dev/null.
 """
 from dataclasses import dataclass
 from functools import lru_cache
+import re
 import shlex
 
 
@@ -106,11 +108,21 @@ def standard_name(value):
     return value
 
 
-def argv_for(part, strip_assignments):
+def argv_for(part, strip_assignments, *, allow_stderr_sink=False):
+    text = part.text
     if part.redirected:
-        return []
+        if not allow_stderr_sink:
+            return []
+        # A trailing literal stderr sink leaves stdout and stdin connected.
+        sink = re.search(r'\s+2(?:>>|>)\s*/dev/null\s*$', text)
+        if sink is None:
+            return []
+        text = text[:sink.start()]
+        head = command_parts(text)
+        if head is None or len(head) != 1 or head[0].redirected:
+            return []
     try:
-        argv = shlex.split(strip_assignments(part.text))
+        argv = shlex.split(strip_assignments(text))
     except ValueError:
         return []
     if argv and argv[0] in ('busybox', '/bin/busybox', '/usr/bin/busybox'):
@@ -190,9 +202,9 @@ def _decode_pipes(text, strip_assignments):
     for left, right in zip(parts, parts[1:]):
         if left.separator != '|':
             continue
-        if not is_decoder(argv_for(left, strip_assignments)):
+        if not is_decoder(argv_for(left, strip_assignments, allow_stderr_sink=True)):
             continue
-        interpreter = stdin_interpreter(argv_for(right, strip_assignments))
+        interpreter = stdin_interpreter(argv_for(right, strip_assignments, allow_stderr_sink=True))
         if interpreter:
             matches.append(DecodePipe(left.start, left.end, right.start, right.end, interpreter))
     return tuple(matches)

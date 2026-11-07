@@ -10,7 +10,7 @@ import unittest
 
 import ingest
 from command_behaviors import without_assignments
-from decode_pipelines import decode_pipes
+from decode_pipelines import argv_for, command_parts, decode_pipes
 from match_signatures import load_rules, match
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,7 +68,6 @@ class DecodePipelineTests(unittest.TestCase):
 
     def test_redirects_and_unsupported_shell_constructs(self):
         for command in ['base64 -d > output | bash', 'base64 -d | sh < local.sh',
-                        'base64 -d 2>/dev/null | bash',  # conservative unsupported form
                         'echo "$(cat input)" | base64 -d | sh',
                         '(base64 -d) | bash', 'base64 -d |& bash',
                         'base64 -d | bash |', '| base64 -d | bash',
@@ -77,6 +76,46 @@ class DecodePipelineTests(unittest.TestCase):
                         "echo 'unterminated; base64 -d | sh", 'base64 -d | sh\\']:
             with self.subTest(command=command):
                 self.assertIsNone(self.hit(command))
+
+    def test_literal_stderr_sink_preserves_program_pipe(self):
+        for command in [
+            'base64 -d 2>/dev/null | bash',
+            'base64 --decode input 2> /dev/null | sh -s',
+            'busybox base64 -di input 2>>/dev/null | /bin/bash -e',
+            'base64 -d | bash 2>/dev/null',
+            'base64 -d 2>/dev/null | perl -w 2>/dev/null',
+            'LC_ALL=C base64 -d 2>/dev/null | LANG=C sh -s -- arg',
+        ]:
+            with self.subTest(command=command):
+                self.assertIsNotNone(self.hit(command))
+                pairs = decode_pipes(command, without_assignments)
+                self.assertEqual(len(pairs), 1)
+                self.assertIn('base64', command[pairs[0].decoder_start:pairs[0].decoder_end])
+
+    def test_other_redirections_do_not_become_direct_program_pipes(self):
+        for command in [
+            'base64 -d >/dev/null 2>/dev/null | bash',
+            'base64 -d 1>/dev/null | bash',
+            'base64 -d 2>&1 | bash',
+            'base64 -d 2>errors.log | bash',
+            'base64 -d < input 2>/dev/null | bash',
+            'base64 -d | bash < local.sh 2>/dev/null',
+            'base64 -d | bash local.sh 2>/dev/null',
+            'base64 -d | bash -c "echo ok" 2>/dev/null',
+            'echo "base64 -d 2>/dev/null | bash"',
+            'base64 -d input2>/dev/null | bash',
+            'base64 -d 2>/dev/null; bash',
+            'base64 -d 2>/dev/null | cat | bash',
+            'base64 -d 2>/dev/null | bash <(echo ok)',
+        ]:
+            with self.subTest(command=command):
+                self.assertIsNone(self.hit(command))
+
+    def test_stderr_sink_is_opt_in_for_shared_command_parser(self):
+        part = command_parts('base64 -d 2>/dev/null')[0]
+        self.assertEqual(argv_for(part, without_assignments), [])
+        self.assertEqual(argv_for(part, without_assignments, allow_stderr_sink=True),
+                         ['base64', '-d'])
 
     def test_no_cross_row_or_cross_session_linking(self):
         rows = [('2026-11-02T00:00:00Z', 'base64 -d'),
@@ -114,6 +153,7 @@ class DecodePipelineTests(unittest.TestCase):
                 for source, sid, protocol, command in [
                     ('fixture', 'ssh_hit', 'ssh', 'base64 -d | bash'),
                     ('fixture', 'telnet_hit', 'telnet', 'base64 -d | perl'),
+                    ('fixture', 'stderr_hit', 'ssh', 'base64 -d 2>/dev/null | bash'),
                     ('a', 'shared', 'ssh', 'base64 -d'),
                     ('b', 'shared', 'ssh', 'bash')]:
                     con.execute('INSERT INTO sessions(source,session_id,protocol,n_commands) VALUES (?,?,?,1)',
@@ -128,10 +168,12 @@ class DecodePipelineTests(unittest.TestCase):
                     env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn('base64 -d | bash', result.stdout)
+                self.assertIn('base64 -d 2>/dev/null | bash', result.stdout)
                 with closing(sqlite3.connect(db)) as con:
                     self.assertEqual(con.execute("SELECT source,session_id,n_hits FROM signature_hits "
                                                  "WHERE rule_id='S02' ORDER BY session_id").fetchall(),
-                                     [('fixture', 'ssh_hit', 1), ('fixture', 'telnet_hit', 1)])
+                                     [('fixture', 'ssh_hit', 1), ('fixture', 'stderr_hit', 1),
+                                      ('fixture', 'telnet_hit', 1)])
 
 
 if __name__ == '__main__':
