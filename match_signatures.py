@@ -121,6 +121,12 @@ def rule_paths(rule, cmds):
 
 
 def download_paths(cmds):
+    """Preserve the existing path API while sharing its target evidence."""
+    return [evidence['steps'] for evidence in download_evidence(cmds)]
+
+
+def download_evidence(cmds):
+    """Return the same-file target and input rows used to complete each path."""
     events = [(event_time(ts), ts, cmd) for ts, cmd in cmds]
     events = sorted((row for row in events if row[0] is not None), key=lambda row: row[0])
     paths, pending = [], {}
@@ -164,7 +170,7 @@ def download_paths(cmds):
                     current[target] = (downloaded, executable or row)
                 elif action == 'run' and executable:
                     if not completed:
-                        paths.append([downloaded, executable, row])
+                        paths.append({'target': target, 'steps': [downloaded, executable, row]})
                     completed = True
                     row_completed = True
             directories.append(current_directory)
