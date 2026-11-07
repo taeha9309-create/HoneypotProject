@@ -175,11 +175,8 @@
   type: behavior
   stage: 실행
   attack: T1059.004
-  note: '명령 입력의 행동 순서만 검사한다. 동일 파일 여부나 실행 성공을 보장하지 않는다.'
-  sequence:
-    - '(?:^|[;&|(\s])\s*(?:(?:/bin/)?busybox\s+)?(?:wget|curl|tftp)\s+[^;&|\n]+'
-    - '(?:^|[;&|])\s*chmod\s+(?:\+x|[0-7]?7[0-7]{2})\s+[^;&|\n]+'
-    - '(?:^|[;&|])\s*(?:\./[^\s;&|]+|(?:ba)?sh\s+[^\s;&|]+\.sh)'
+  note: 'Observes ordered input targeting the same literal path within a session.'
+  session_detector: download_chmod_execute
 
 
 # detector는 따옴표 밖의 명령 위치에서만 관측한다. 악성/성공 판정이 아니다.

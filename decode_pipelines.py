@@ -26,7 +26,7 @@ class DecodePipe:
     interpreter: str
 
 
-def command_parts(text):
+def command_parts(text, *, allow_groups=False, allow_here_strings=False):
     """Return spans with their following operators, or None if unsupported.
 
     Operators in quoted strings or escaped characters are not separators.
@@ -57,7 +57,7 @@ def command_parts(text):
             continue
         if char in "\"'":
             quote = char
-        elif char == '`' or text[index:index + 2] == '$(' or char in '()':
+        elif char == '`' or text[index:index + 2] == '$(' or (char in '()' and not allow_groups):
             return None
         elif char == '#' and (index == 0 or text[index - 1].isspace()
                               or text[index - 1] in ';|&'):
@@ -73,10 +73,14 @@ def command_parts(text):
             redirected = False
             continue
         elif char in '<>':
+            if text[index:index + 3] == '<<<' and allow_here_strings:
+                redirected = True
+                index += 3
+                continue
             if text[index:index + 2] == '<<':
                 return None
             redirected = True
-        elif char in ';|&\n':
+        elif char in ';|&\n()':
             pair = text[index:index + 2]
             if pair == '|&':
                 return None

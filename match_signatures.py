@@ -8,15 +8,18 @@
 요약 비율은 테스트 접속(excluded=1)을 뺀, 명령어가 있는 SSH/Telnet 세션 기준이다.
 """
 import argparse
+import posixpath
 import re
 import sqlite3
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from itertools import groupby
 
 import yaml
 
 from command_behaviors import DETECTORS, observe
+from s01_sequence import actions
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS signature_hits (
@@ -45,6 +48,12 @@ def load_rules(path):
             sys.exit(f"{r['id']}: detector와 sequence는 함께 쓸 수 없다")
         if r.get("type") not in ("behavior", "campaign"):
             sys.exit(f"{r['id']}: type은 behavior 또는 campaign이어야 한다")
+        if "session_detector" in r:
+            if r["session_detector"] != "download_chmod_execute" or any(
+                field in r for field in ("detector", "patterns", "sequence")
+            ):
+                sys.exit(f"{r['id']}: invalid session detector configuration")
+            continue
         field = "sequence" if "sequence" in r else "patterns"
         if field == "sequence" and "patterns" in r:
             sys.exit(f"{r['id']}: patterns와 sequence는 함께 쓸 수 없다")
@@ -81,8 +90,8 @@ def match(rules, cmds):
     observations = ({cmd: observe(cmd) for _, cmd in cmds}
                     if any(r.get("detector") for r in rules) else {})
     for r in rules:
-        if "sequence" in r:
-            paths = sequence_matches(r["regex"], cmds)
+        if "sequence" in r or "session_detector" in r:
+            paths = rule_paths(r, cmds)
             if paths:
                 hits[r["id"]] = (paths[0][0][0], len(paths))
             continue
@@ -103,6 +112,72 @@ def event_time(ts):
         return value.astimezone(timezone.utc)
     except (ValueError, TypeError, AttributeError):
         return None
+
+
+def rule_paths(rule, cmds):
+    if "session_detector" in rule:
+        return download_paths(cmds)
+    return sequence_matches(rule["regex"], cmds)
+
+
+def download_paths(cmds):
+    events = [(event_time(ts), ts, cmd) for ts, cmd in cmds]
+    events = sorted((row for row in events if row[0] is not None), key=lambda row: row[0])
+    paths, pending = [], {}
+    cwd = None
+    for _, rows in groupby(events, key=lambda row: row[0]):
+        observations = [(ts, cmd, list(actions(cmd))) for _, ts, cmd in rows]
+        ambiguous_directory = len(observations) > 1 and any(
+            action == 'cd' for _, _, observed in observations for action, _ in observed
+        )
+        starting_directory = None if ambiguous_directory else cwd
+        if ambiguous_directory:
+            pending = {path: state for path, state in pending.items() if path.startswith('/')}
+        # Equal-time rows can each extend older evidence but cannot extend each other.
+        additions = {}
+        completed = False
+        directories = []
+        for ts, cmd, observed in observations:
+            current = pending.copy()
+            current_directory = starting_directory
+            row_completed = False
+            for action, target in observed:
+                if action == 'cd':
+                    current = {path: state for path, state in current.items()
+                               if path.startswith('/')}
+                    current_directory = (
+                        posixpath.join(current_directory, target)
+                        if target and current_directory else target
+                    )
+                    if current_directory and not current_directory.startswith('/'):
+                        current_directory = None
+                    continue
+                if target is None or row_completed:
+                    continue
+                if current_directory:
+                    target = posixpath.join(current_directory, target)
+                downloaded, executable = current.get(target, (None, None))
+                row = (ts, cmd)
+                if action == 'download':
+                    current[target] = (row if executable else downloaded or row, None)
+                elif action == 'chmod' and downloaded:
+                    current[target] = (downloaded, executable or row)
+                elif action == 'run' and executable:
+                    if not completed:
+                        paths.append([downloaded, executable, row])
+                    completed = True
+                    row_completed = True
+            directories.append(current_directory)
+            for target, state in current.items():
+                previous = additions.get(target)
+                if previous is None or (state[1] and not previous[1]):
+                    additions[target] = state
+        pending = {} if completed else additions
+        # Equal-time inputs do not establish which working directory is last.
+        cwd = directories[0] if all(d == directories[0] for d in directories) else None
+        if len(directories) > 1 and cwd is None:
+            pending = {path: state for path, state in pending.items() if path.startswith('/')}
+    return paths
 
 
 def sequence_matches(regexes, cmds):
@@ -194,8 +269,8 @@ def main():
             if not campaign_ids.intersection(hits):
                 no_campaign[source] += 1
             if example_rule and example_rule["id"] in hits:
-                if "sequence" in example_rule:
-                    for path in sequence_matches(example_rule["regex"], cmds):
+                if "sequence" in example_rule or "session_detector" in example_rule:
+                    for path in rule_paths(example_rule, cmds):
                         examples[" -> ".join(cmd for _, cmd in path)[:120]] += 1
                     continue
                 for _, cmd in cmds:
