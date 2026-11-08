@@ -24,7 +24,7 @@ from pathlib import Path
 
 # 우리가 직접 접속한 테스트 세션·IP (분석에서 제외)
 TEST_SESSIONS = {"55b8894c004b", "068d4def1310"}
-TEST_IPS = {"39.124.23.44", "118.235.26.80", "211.238.109.139"}
+TEST_IPS = {"39.124.23.44", "118.235.26.80", "211.238.109.139", "211.238.109.168", "211.108.129.43"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -220,8 +220,15 @@ def save(con, source, sessions, commands, failed, downloads):
         [(source, *c) for c in failed],
     )
     con.executemany(
-        "INSERT OR IGNORE INTO downloads (source, session_id, ts, url, shasum) VALUES (?, ?, ?, ?, ?)",
-        [(source, *d) for d in downloads],
+        # Keep the existing schema and legacy NULL rows; NULL and empty URL
+        # identify the same event. A single INSERT also serializes concurrent writers.
+        """INSERT OR IGNORE INTO downloads (source, session_id, ts, url, shasum)
+        SELECT ?1, ?2, ?3, ?4, ?5 WHERE NOT EXISTS (
+            SELECT 1 FROM downloads
+            WHERE source = ?1 AND session_id = ?2 AND ts = ?3
+                AND IFNULL(url, '') = ?4
+        )""",
+        [(source, sid, ts, url or '', shasum) for sid, ts, url, shasum in downloads],
     )
     con.executemany(
         """
