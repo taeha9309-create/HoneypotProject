@@ -18,7 +18,9 @@ from itertools import groupby
 
 import yaml
 
-from command_behaviors import DETECTORS, observe
+from command_behaviors import DETECTORS, observe, without_assignments
+from additional_signatures import DETECTORS as ADDITIONAL_DETECTORS, observe_additional
+DETECTORS = DETECTORS | ADDITIONAL_DETECTORS
 from s01_sequence import actions
 
 SCHEMA = """
@@ -87,7 +89,8 @@ def iter_sessions(con):
 def match(rules, cmds):
     """세션 하나에 대해 {rule_id: (first_ts, n_hits)}를 돌려준다."""
     hits = {}
-    observations = ({cmd: observe(cmd) for _, cmd in cmds}
+    observations = ({cmd: observe(cmd) | observe_additional(cmd, without_assignments)
+                     for _, cmd in cmds}
                     if any(r.get("detector") for r in rules) else {})
     for r in rules:
         if "sequence" in r or "session_detector" in r:

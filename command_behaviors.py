@@ -11,7 +11,7 @@ from behavior_extensions import extra_observations
 
 DETECTORS = {"self_exe_read", "shell_script", "hex_file_write", "firewall_flush",
              "password_change", "decode_pipeline", "ssh_key_write",
-             "file_write_probe", "binary_inspection"}
+             "file_write_probe", "binary_inspection", "execute_permission"}
 
 
 def without_assignments(fragment):
@@ -134,6 +134,46 @@ def password_change_command(name, args):
     return False
 
 
+
+def system_info_read(name, args):
+    """Literal cat reads; keep the legacy self_exe_read tag/API for B01."""
+    if name != 'cat' or {'--help', '--version'}.intersection(args):
+        return False
+    args = list(args)
+    while args and args[0].startswith('-') and args[0] != '-':
+        option = args.pop(0)
+        if option == '--':
+            break
+        if not re.fullmatch(r'-[AbEenstTuv]+', option):
+            return False
+    return any(arg in ('/etc/os-release', '/proc/version') for arg in args)
+
+
+def execute_permission(name, args):
+    """Observe explicit +x or octal execute bits, with a literal target.
+
+    Conditional X, copied permissions and complex symbolic clauses are deferred.
+    This records requested permissions, not successful changes or maliciousness.
+    """
+    if name != 'chmod':
+        return False
+    args = list(args)
+    while args and args[0] in ('-R', '-f', '-v', '-c', '--recursive',
+                               '--silent', '--quiet', '--verbose', '--changes'):
+        args.pop(0)
+    if args and args[0] == '--':
+        args.pop(0)
+    if len(args) < 2:
+        return False
+    mode, targets = args[0], args[1:]
+    if not all(t and not t.startswith(('-', '$', '<', '>'))
+               and not any(c in t for c in '$`*?[]') for t in targets):
+        return False
+    if re.fullmatch(r'[0-7]{3,4}', mode):
+        return bool(int(mode, 8) & 0o111)
+    return re.fullmatch(r'[ugoa]*\+[rwx]*x[rwx]*', mode) is not None
+
+
 def observe(text):
     """Return behavior tags, not maliciousness or execution-success verdicts."""
     tags = set()
@@ -143,6 +183,10 @@ def observe(text):
         tags.add('decode_pipeline')
     for argv, output in literal_commands(text):
         name, args = executable_name(argv[0]), argv[1:]
+        if system_info_read(name, args):
+            tags.add('self_exe_read')
+        if execute_permission(name, args):
+            tags.add('execute_permission')
         if password_change_command(name, args):
             tags.add('password_change')
         if (name == 'cat' and '/proc/self/exe' in args

@@ -113,8 +113,7 @@
   type: behavior
   stage: 방어 회피
   attack: T1222.002
-  patterns:
-    - '\bchmod\s+(\+x|[0-7]?7[0-7]{2})'
+  detector: execute_permission
 
 - id: B12
   name: 경쟁 프로세스 죽이기
@@ -219,3 +218,28 @@
   attack: T1518
   detector: binary_inspection
   note: 'which, command -v/-V, type -p/-P와 제한된 ls/stat $(which PROGRAM) 입력 관측. 명령 치환을 실행하지 않으며 정상 관리 작업도 일치한다.'
+
+# Input observations only: these rules do not prove maliciousness or success.
+- id: B18
+  name: 로컬 계정 목록 조회
+  type: behavior
+  stage: 정찰
+  attack: T1087.001
+  detector: local_account_read
+  note: 'literal cat /etc/passwd 또는 getent passwd. B02(T1033)와 분리. 출력 내용과 성공은 미확인.'
+
+- id: B19
+  name: Unix 셸 진입 요청
+  type: behavior
+  stage: 실행
+  attack: T1059.004
+  detector: shell_entry
+  note: 'sh/bash/ash/dash 단독 또는 제한된 대화형 옵션 입력. 낮은 특이도의 요청 관측이며 공격이나 실행 성공을 의미하지 않는다. B10의 스크립트 실행과 분리.'
+
+- id: B20
+  name: 파일·디렉터리 목록 조회
+  type: behavior
+  stage: 정찰
+  attack: T1083
+  detector: directory_listing
+  note: 'literal ls 및 제한된 옵션. 정상 관리 작업도 일치하며 파일 접근 성공은 미확인.'
