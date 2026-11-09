@@ -1,5 +1,31 @@
 # 로컬 대시보드 MVP
 
+## 실제 군집 산점도
+
+ML Analysis에 클릭 가능한 SVG 군집 산점도를 추가했다. 자바스크립트·외부 시각화 서비스는 사용하지 않는다.
+동일 정규화 패턴은 원 하나로 묶고, 원 크기는 세션 수를 로그 비례로 표시한다.
+색은 저장된 cluster_id이며 노이즈는 회색이다. 범례로 강조하고 원을 눌러 멤버 세션으로 이동한다.
+
+좌표는 기존 `ml.cluster.normalize_session`과 `features`를 재사용해 프로토콜별로 계산한다.
+고유 패턴을 동일 가중치로 TF-IDF/SVD-L2 특징화한 뒤 PCA로 2차원 투영한다.
+실제 학습 모델의 저장 좌표를 복원한 것이 아니며 군집 결과를 재학습·수정하지 않는다.
+군집 번호로 위치를 만들거나 임의로 점을 벌리지 않는다. 축·거리·겹침은 2차원 근사치다.
+
+좌표 생성은 저장소 루트에서 다음과 같이 실행한다 (전용 .venv에 기존 ML 의존성 설치 필요).
+
+```powershell
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt -r ml/requirements.txt
+.venv/Scripts/python -m dashboard.project_clusters
+python -m dashboard.app
+```
+
+생성 결과는 Git에서 제외한 `data/cluster_projection.json`이다. 웹 서버에는 ML 패키지가 필요 없다.
+현재 전달받은 handoff DB를 `dashboard.local.json`으로 선택해 좌표를 생성했다.
+검증 결과: 1,401세션 / 26패턴 묶음. 군집별 611·609·74·74·12·10세션, 노이즈 11세션.
+매 조회 때 대상 세션·명령어·군집의 지문을 확인하고, 현재 DB와 다르면 그림을 숨기고 재생성을 안내한다.
+DB를 바꾸거나 분석 결과/명령어가 변경되면 좌표 생성 명령을 다시 실행해야 한다.
+
 기준 main: `c9934d542251c22d1b40bdea4d0625c19ddad766` (2026-11-08).
 작업 브랜치: `feat/dashboard-mvp`. 기존 ingest, 규칙, 시그니처 및 ML 분석 코드는 변경하지 않았다.
 Python 표준 라이브러리 HTTP 서버와 기존 PyYAML 의존성을 사용한다. 별도 프런트엔드 빌드는 없다.

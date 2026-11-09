@@ -11,6 +11,7 @@ import os
 
 from match_signatures import load_rules, match, rule_paths
 from explain_signatures import explain_session
+from dashboard.projection import render as render_projection
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -133,7 +134,10 @@ class Dashboard:
             return body
         if path == '/ml':
             if 'ml_clusters' not in tables: return '<h2>ML Analysis</h2><p>데이터 없음: 실제 ml_clusters 결과가 없습니다. 문서의 과거 통계를 현재 데이터로 표시하지 않습니다.</p>'
-            body = '<h2>ML Analysis</h2><p>저장된 배정 결과만 조회합니다. 군집 키는 프로토콜 + 군집 ID이며 -1은 노이즈입니다. 대표 행동 요약은 미구현이며 실제 멤버 명령은 세션 상세에서 확인합니다.</p>'
+            body = '<h2>ML Analysis</h2><p class="intro">명령어 패턴의 관계를 살펴보고 실제 세션과 탐지 근거로 이어갑니다. 저장된 군집을 유지하며 -1은 미분류(노이즈)입니다.</p>'
+            stats=con.execute('SELECT COUNT(*),COUNT(DISTINCT CASE WHEN m.cluster_id>=0 THEN m.protocol || char(31) || m.cluster_id END),COALESCE(SUM(m.cluster_id=-1),0) FROM ml_clusters m JOIN sessions s USING(source,session_id) WHERE s.excluded=0').fetchone()
+            body += cards([('ML 분석 세션',stats[0],'저장된 배정 결과'),('탐지된 군집',stats[1],'프로토콜별 군집 · 노이즈 제외'),('미분류 / 노이즈',stats[2],'군집에 배정되지 않은 세션'),('좌표 계산','PCA 2D','실제 명령어 특징의 근사 투영')])
+            body += render_projection(con,q)
             data = rows('SELECT m.protocol,m.cluster_id,COUNT(*) AS 세션,COUNT(DISTINCT s.src_ip) AS IP,MIN(m.assigned_at) AS 최초배정,MAX(m.assigned_at) AS 최근배정 FROM ml_clusters m JOIN sessions s USING(source,session_id) WHERE s.excluded=0 GROUP BY m.protocol,m.cluster_id ORDER BY m.protocol,m.cluster_id')
             body += table(data)
             for r in data:
