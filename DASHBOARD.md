@@ -17,6 +17,36 @@ python -m dashboard.app --db data/honeypot.db
 포트 변경: `--port 8001`. DB 경로는 절대 경로도 가능하며 기본 경로는 저장소의 `data/honeypot.db`다.
 서버는 127.0.0.1에만 연결한다. 배포·인증·외부 공개는 구현하지 않았다.
 
+### 이 PC의 실제 DB 연결
+
+발견한 운영 DB: `D:/HoneyPot/HoneypotProject/data/honeypot.db`.
+추가 보관 DB: `D:/HoneyPot/HoneypotProject/data/honeypot_20261107.db`.
+이번에는 사용자가 지정한 `honeypot.db`를 연결했다. 두 DB를 합치거나 재분석하지 않는다.
+
+Git에서 제외한 `dashboard.local.json`에 다음 설정을 저장했다.
+
+```json
+{"db":"D:/HoneyPot/HoneypotProject/data/honeypot.db"}
+```
+
+이 설정을 사용할 때는 기존 서버를 Ctrl+C로 종료한 뒤 **DB 옵션 없이** 실행한다.
+
+```sh
+python -m dashboard.app
+```
+
+또는 `start-dashboard.cmd`를 실행한다. 기존의 `--db data/honeypot.db` 옵션을 붙이면
+로컬 설정 대신 그 파일을 조회하므로 주의한다. 우선순위는 --db > HONEYPOT_DB 환경변수 > 로컬 JSON > 기본 data/honeypot.db다.
+
+실제 DB 조회 검증: 전체 세션 4,676개 / 테스트 제외 4,664개, 테스트 제외 명령어 11,573개,
+파일별 이벤트 집계 합 41,795개, 저장된 signature_hits 325행.
+데이터 출처는 `cowrie-logs`, 세션 시작 범위는 2026-10-27 ~ 2026-11-02다.
+이 DB에는 ml_clusters가 없다. 최신 수집 서버와 실시간 동기화한 데이터로 해석하면 안 된다.
+각 화면 및 탐지 세션 상세를 실제 DB로 생성하고 조회 전후 SHA-256 일치를 확인했다.
+
+화면은 어두운 사이드 메뉴, 통계 카드, 세션 추이 막대 차트, 프로토콜 비율 막대,
+세션 표 및 작은 화면용 레이아웃으로 개선했다. 외부 이미지·폰트·CDN에 데이터를 보내지 않는다.
+
 ## 실제 데이터 준비 (기존 도구)
 
 DB, 원본 로그, ML 모델 및 결과 CSV는 main에 포함되지 않는다. 따라서 최초 실행은 데이터 없음이 정상이다.

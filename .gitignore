@@ -220,6 +220,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # 허니팟 프로젝트 전용
+dashboard.local.json
 *.pem
 keys/
 raw/
