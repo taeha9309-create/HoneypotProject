@@ -1,5 +1,15 @@
 # HoneypotProject
 
+로컬 대시보드 MVP 실행 및 검증: [DASHBOARD.md](DASHBOARD.md)
+
+```sh
+python -m pip install -r requirements.txt
+python -m dashboard.app --db data/honeypot.db
+```
+
+http://127.0.0.1:8000 에서 기존 SQLite 데이터를 읽기 전용으로 조회한다.
+DB·분석 결과가 없으면 데이터 없음으로 표시한다.
+
 S01·S02의 탐지 근거를 특정 출처와 세션 단위로 조회할 수 있다.
 
 ```sh
