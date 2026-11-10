@@ -12,6 +12,7 @@ import os
 from match_signatures import load_rules, match, rule_paths
 from explain_signatures import explain_session
 from dashboard.projection import render as render_projection
+from dashboard.overview import render as render_overview, stats as overview_stats
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -73,6 +74,8 @@ class Dashboard:
                 con.execute('PRAGMA query_only=ON')
                 body = self.content(con, path, q)
         css = (Path(__file__).parent/'style.css').read_text(encoding='utf-8')
+        if path in ('/','/overview'):
+            css += (Path(__file__).parent/'assets/overview.css').read_text(encoding='utf-8')
         return ('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Honeypot Intelligence</title><style>'+css+'</style></head><body><aside><div class="brand"><b>H</b><div>HONEYPOT<small>INTELLIGENCE</small></div></div><div class="nav-label">WORKSPACE</div>'+nav+'<div class="sidebar-note"><i></i> LOCAL WORKSPACE<small>실제 데이터 · 읽기 전용</small></div></aside><main><header><div><span class="eyebrow">SECURITY ANALYTICS</span><h1>공격 행동 분석</h1></div><span class="status">'+('● DB 연결됨' if self.db.is_file() else '○ DB 미연결')+'</span></header><details class="data-info"><summary>데이터 출처 및 집계 기준</summary><p>DB: '+h(self.db)+'<br>읽기 전용 · 기본 집계에서 테스트 세션 제외 · 시각은 DB 원문 기준</p></details><section class="content">'+body+'</section><footer>HONEYPOT PROJECT <span>입력 관측과 분석 결과를 확인하는 로컬 대시보드</span></footer></main></body></html>')
 
     def content(self, con, path, q):
@@ -82,13 +85,7 @@ class Dashboard:
         if not {'sessions','commands'} <= tables:
             return '<p>데이터 없음: ingest 스키마가 없습니다.</p>'
         if path in ('/', '/overview'):
-            n = con.execute('SELECT COUNT(*) FROM sessions WHERE excluded=0').fetchone()[0]
-            c = con.execute('SELECT COUNT(*) FROM commands c JOIN sessions s USING(source,session_id) WHERE s.excluded=0').fetchone()[0]
-            events = con.execute('SELECT SUM(n_events) FROM ingested_files').fetchone()[0] if 'ingested_files' in tables else None
-            daily = rows('SELECT substr(start_ts,1,10) AS 날짜, COUNT(*) AS 세션 FROM sessions WHERE excluded=0 GROUP BY 1 ORDER BY 1')
-            protocols = rows("SELECT COALESCE(protocol,'미상') AS 프로토콜, COUNT(*) AS 세션, ROUND(100.0*COUNT(*)/NULLIF((SELECT COUNT(*) FROM sessions WHERE excluded=0),0),2) AS 비율 FROM sessions WHERE excluded=0 GROUP BY protocol")
-            sources = rows('SELECT source AS 출처,COUNT(*) AS 세션,MIN(start_ts) AS 수집시작,MAX(end_ts) AS 수집종료 FROM sessions WHERE excluded=0 GROUP BY source')
-            return '<h2>Overview</h2><p class="intro">수집 규모부터 관측된 공격 행동까지, 연결된 DB의 현황을 확인합니다.</p>'+cards([('전체 수집 이벤트',events,'파일별 ingest 집계 · 중복 가능'),('접속 세션',n,'테스트 세션 제외'),('로그인 시도','미구현','기존 DB에 시도 이벤트 미저장'),('명령어 입력',c,'중복 제거된 입력 행')])+'<div class="notice">이벤트 수는 테스트를 포함한 파일별 집계 합입니다. 고유 원본 이벤트 총수가 아니며, 로그인 시도는 성공 세션 수로 추정하지 않습니다.</div><div class="panel"><div class="panel-heading"><h3>세션 활동 추이</h3><span>세션 시작일 기준</span></div>'+trend(daily)+'<details><summary>날짜별 수치 보기</summary>'+table(daily)+'</details></div><div class="two-columns"><div class="panel"><h3>프로토콜 분포</h3>'+''.join('<div class="protocol"><div><b>'+h(r['프로토콜'])+'</b><span>'+h(r['세션'])+' 세션 · '+h(r['비율'])+'%</span></div><div class="track"><div style="width:'+str(r['비율'] or 0)+'%"></div></div></div>' for r in protocols)+'</div><div class="panel"><h3>데이터 범위</h3>'+table(sources)+'</div></div>'
+            return render_overview(con,q)
         if path == '/sessions':
             fields = [('source','출처'),('ip','IP 포함'),('since','시작일 이상'),('until','시작일 이하')]
             form = '<form>'+''.join(f'<label>{label}<input name="{key}" value="{h(q.get(key,""))}"></label>' for key,label in fields)+'<label>프로토콜<select name="protocol">'+''.join(f'<option value="{v}"'+(' selected' if q.get('protocol','')==v else '')+'>'+h(v or '전체')+'</option>' for v in ('','ssh','telnet'))+'</select></label><label><input type="checkbox" name="commands" value="1"'+(' checked' if q.get('commands') else '')+'>명령어 있음</label><button>조회</button></form>'
@@ -152,8 +149,28 @@ class Dashboard:
 
 def make_handler(app):
     class Handler(BaseHTTPRequestHandler):
+        def respond(self,body,status=200,content_type='application/json; charset=utf-8'):
+            data=body.encode('utf-8')
+            self.send_response(status)
+            self.send_header('Content-Type',content_type)
+            self.send_header('Content-Length',str(len(data)))
+            self.send_header('Cache-Control','no-store')
+            self.send_header('X-Content-Type-Options','nosniff')
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_GET(self):
             url = urlsplit(self.path)
+            if url.path=='/assets/overview.js':
+                return self.respond((ROOT/'dashboard/assets/overview.js').read_text(encoding='utf-8'),content_type='text/javascript; charset=utf-8')
+            if url.path=='/api/overview':
+                try:
+                    with closing(sqlite3.connect(app.db.as_uri()+'?mode=ro',uri=True)) as con:
+                        con.execute('PRAGMA query_only=ON')
+                        report=overview_stats(con,{k:v[-1] for k,v in parse_qs(url.query).items()})
+                    return self.respond(json.dumps(report,ensure_ascii=True))
+                except (ValueError,sqlite3.Error,OSError):
+                    return self.respond(json.dumps({'error':'Invalid filter or unavailable database'}),400)
             try:
                 body = app.render(url.path,{k:v[-1] for k,v in parse_qs(url.query).items()})
                 status = 200
@@ -163,7 +180,7 @@ def make_handler(app):
             self.send_response(status)
             self.send_header('Content-Type','text/html; charset=utf-8')
             self.send_header('Content-Length',str(len(data)))
-            self.send_header('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+            self.send_header('Content-Security-Policy',"default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
             self.send_header('Cache-Control','no-store')
             self.end_headers()
             self.wfile.write(data)

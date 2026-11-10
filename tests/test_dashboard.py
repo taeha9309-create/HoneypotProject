@@ -49,7 +49,7 @@ class DashboardTests(unittest.TestCase):
             before = sha256(path.read_bytes()).digest()
             app = Dashboard(path,ROOT/'signatures/rules.yaml')
             overview = app.render('/overview',{})
-            self.assertIn('미구현',overview)
+            self.assertIn('ov-payload',overview)
             filtered = app.render('/sessions',{'source':'seoul','commands':'1'})
             self.assertIn('총 1개',filtered)
             self.assertNotIn('syd / same',filtered)

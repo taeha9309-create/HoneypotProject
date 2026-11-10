@@ -1,5 +1,57 @@
 # 로컬 대시보드 MVP
 
+## Overview 개편 (2026-11-10)
+
+Overview에만 어두운 운영 모니터 형태의 카드 그리드를 적용했다. Sessions·Detection·ML 화면과 기존 분석 로직은 유지한다.
+
+- KST 날짜/출처 선택, 어제/최근 수집일 바로가기. 최초 화면은 데이터가 있는 최신 날짜다.
+- 선택일 접속 세션, 고유 IP, 명령어 수, 로그인 시도 카드. 명령어 수는 **선택일에 시작한 세션의 전체 입력 수**다.
+- 실제 세션 시작 시각 기반 지도 하루 재생: 30/60/120초, 일시정지, 시각 슬라이더, 전체 복원.
+- 국가 원 선택으로 반복 IP 순위와 접속 기록을 해당 국가로 필터링. 위치 미상은 지도에서 제외하되 전체 기록/순위에 포함한다.
+- 같은 날 2회 이상 접속한 IP TOP 10, 시간대별 세션 막대, 최근 세션 30개, SSH/Telnet/미상 도넛.
+- 로그인 계정·비밀번호 TOP 8: 현재 DB에서는 마지막으로 저장된 **성공 세션 요약**만 집계한다. 전체 시도나 실패 횟수로 해석할 수 없다.
+- 실시간 확인은 **현재 KST 날짜의 DB를 10초마다 재조회**한다. 이 버튼은 원본 로그를 수집하는 기능이 아니다.
+  현재 연결된 데이터는 11월 7일까지의 사본이므로 오늘 접속은 0, 새 데이터 대기로 표시된다. 과거 기록을 현재 공격처럼 재생하지 않는다.
+
+### 실제 로그인 시도 로그 연결
+
+전달받은 handoff 폴더에는 DB/CSV/문서만 있고 원본 시드니 Cowrie JSON 로그가 없다.
+DB에 전체 인증 이벤트가 없으므로 현재 전체 로그인 시도 카드는 데이터 없음으로 남긴다.
+원본 로그를 받으면 기존 ingest를 변경하지 않고 대시보드 전용 인증 이벤트 사본을 만든다.
+
+```powershell
+python -m dashboard.import_auth "실제/시드니/로그/폴더" --source syd
+```
+
+현재 DB의 source/session_id, 원본 IP(있을 때), 세션 시간 범위와 일치하는 success/failed 이벤트만 넣는다.
+제외 세션은 넣지 않고 같은 이벤트 재입력은 중복 제거한다. 원본 DB는 읽기 전용이며
+별도 `data/overview_auth.db`에만 저장한다. 날짜 범위에 실제 인증 이벤트가 있을 때 카드와 그래프가
+원본 로그 기준으로 전환된다. 로그 일부만 연결했다면 그 범위의 집계이므로 전체 시도라고 확정하지 않는다.
+
+### 지도 데이터와 정확도
+
+공격 IP는 외부 API로 전송하지 않는다. DB-IP Country Lite 범위를 로컬에서 대조하고 Natural Earth의
+국가 대표점에 원을 놓는다. 국가 추정이며 서버/공격자의 실제 도시·물리 좌표가 아니다.
+VPN/프록시나 GeoIP 오류가 있을 수 있다. 현재 IPv4만 오프라인 조회하며 IPv6/조회 실패/지도에 없는 국가는 위치 미상이다.
+수집 서버의 좌표를 임의로 만들거나 지도에 가상 공격선을 그리지 않는다.
+
+자료 출처 및 라이선스:
+
+- [DB-IP Country Lite (CC BY 4.0)](https://github.com/sapics/ip-location-db/tree/main/dbip-country), `dashboard/assets/DBIP-LICENSE` 보존 및 화면 링크 표시.
+- [Natural Earth (public domain)](https://github.com/nvkelso/natural-earth-vector), 110m 국가 경계 및 국가 대표점.
+
+지도 경계는 `dashboard/assets/world.json`, 이 PC의 실제 IP 조회 결과는 Git에서 제외한
+`data/overview_geo.json`이다. 새 IP는 조회 자료를 다시 준비하기 전까지 위치 미상으로 표시한다.
+
+```powershell
+curl.exe -L --fail https://raw.githubusercontent.com/sapics/ip-location-db/main/dbip-country/dbip-country-ipv4.csv -o work/geo/country.csv
+curl.exe -L --fail https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson -o work/geo/world.geojson
+python -m dashboard.prepare_geo --countries work/geo/country.csv --world work/geo/world.geojson
+```
+
+검증: KST 자정 경계, 출처/제외 필터, 과거/실시간 분리, 명령어 범위, HTML/JSON 이스케이프,
+실제 인증 이벤트 중복 제거 및 원본 DB 해시 불변. 브라우저에서 재생·일시정지·국가 선택·실시간 대기·작은 화면과 데스크톱 배치를 확인했다.
+
 ## 실제 군집 산점도
 
 ML Analysis에 클릭 가능한 SVG 군집 산점도를 추가했다. 자바스크립트·외부 시각화 서비스는 사용하지 않는다.
