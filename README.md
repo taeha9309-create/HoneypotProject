@@ -1,5 +1,7 @@
 # HoneypotProject
 
+대시보드 팀 인수인계: [TEAM_HANDOFF.md](TEAM_HANDOFF.md) · 재기획 초안: [기획서 v1](docs/dashboard-plan-v1.ko.md)
+
 로컬 대시보드 MVP 실행 및 검증: [DASHBOARD.md](DASHBOARD.md)
 
 ```sh
