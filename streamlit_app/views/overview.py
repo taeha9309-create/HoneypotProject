@@ -56,7 +56,7 @@ cmp_note = f'직전 {f.days}일 대비' if prev else ''
 KPI_H = None  # 내용 높이에 맞춘다 (좁은 화면에서 숫자가 잘리지 않게)
 left, right = st.columns(2)
 with left:
-    with C.card('Traffic', height=KPI_H, help='세션은 시작 시각, 인증은 이벤트 시각 기준. 변화율은 직전 같은 길이 기간 대비입니다. '
+    with C.card('TRAFFIC', height=KPI_H, help='세션은 시작 시각, 인증은 이벤트 시각 기준. 변화율은 직전 같은 길이 기간 대비입니다. '
                                        '아래 막대는 허니팟별 세션 비율입니다.'):
         a, b, c = st.columns(3)
         with a:
@@ -70,7 +70,7 @@ with left:
                     [(r.name, r.percent, C.SOURCE_COLORS.get(r.name, C.MUTED), f'{r.name} {r.sessions:,}세션 ({r.percent:.1f}%)')
                      for r in src.itertuples()])
 with right:
-    with C.card('Activity', height=KPI_H, help='우선 확인 세션: 다운로드 후 실행·디코딩 후 실행·SSH 키·예약 작업·기록 끄기·로그 삭제·방화벽 해제 중 '
+    with C.card('ACTIVITY', height=KPI_H, help='우선 확인 세션: 다운로드 후 실행·디코딩 후 실행·SSH 키·예약 작업·기록 끄기·로그 삭제·방화벽 해제 중 '
                                  '하나라도 관측된 고유 세션. 신규: 기간 선택 시 그 이전 보유 데이터에 없던 IP (전체 기간은 누적). '
                                  '아래 막대는 세션이 상위 IP에 얼마나 몰렸는지(IP 집중도)입니다. 집중도가 높으면 세션 수와 국가 순위가 '
                                  '소수 IP의 반복을 크게 반영합니다.'):

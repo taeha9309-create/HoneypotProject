@@ -102,7 +102,7 @@ h1, h2, h3 {letter-spacing: .02em;}
 .hp-head {font-size: 1.55rem; font-weight: 800; letter-spacing: .04em; color: #f3f4f6; text-transform: uppercase;}
 .hp-head span {color: #7d8590; font-weight: 700;}
 .hp-sub {color: #7d8590; font-size: .82rem; margin-top: .15rem;}
-.hp-title {color: #9aa3ad; font-size: .74rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+.hp-title {color: #9aa3ad; font-size: .74rem; font-weight: 700; letter-spacing: .06em;
            margin: -.2rem 0 .3rem 0;}
 div[data-testid="stVerticalBlockBorderWrapper"] {background: #0f1317; border-color: #1c2128 !important;}
 .hp-kpi {padding: .1rem .2rem .2rem .2rem;}

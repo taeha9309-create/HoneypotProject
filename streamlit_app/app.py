@@ -51,6 +51,7 @@ st.session_state['filters'] = D.Filters(tuple(sources), tuple(protocols), start,
 
 here = Path(__file__).resolve().parent / 'views'
 pages = {'overview': st.Page(str(here / 'overview.py'), title='Overview', icon='📊', default=True),
-         'detail': st.Page(str(here / 'investigate.py'), title='세션 조사', icon='🔎')}
+         'detail': st.Page(str(here / 'investigate.py'), title='세션 조사', icon='🔎'),
+         'detection': st.Page(str(here / 'detection.py'), title='탐지 분석', icon='🛡️')}
 st.session_state['pages'] = pages
 st.navigation(list(pages.values())).run()
