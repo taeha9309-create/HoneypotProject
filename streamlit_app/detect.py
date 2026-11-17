@@ -178,3 +178,52 @@ def unmatched_inputs(ds, sc, top=30):
     raws['command'] = raws['command'].map(lambda c: D.defang(c, 200))
     share = len(m) / len(cmds) * 100
     return groups, raws, share
+
+
+# ---------------------------------------------------------------- 위험도와 진행 단계 (쉬운 화면용)
+
+# 위험도: 실제 서버였다면 피해로 이어질 가능성. 기획서 4절의 우선 확인 규칙은 모두 '높음'.
+DANGER = {
+    'S01': 3, 'S02': 3, 'B04': 3, 'B05': 3, 'B06': 3, 'B07': 3, 'B15': 3, 'B12': 3, 'B13': 3,
+    'B03': 2, 'B08': 2, 'B09': 2, 'B10': 2, 'B11': 2, 'B14': 2,
+    'B01': 1, 'B02': 1, 'B16': 1, 'B17': 1, 'B18': 1, 'B19': 1, 'B20': 1,
+}
+DANGER_NAMES = {3: '높음', 2: '중간', 1: '낮음'}
+DANGER_COLORS = {3: '#fb7185', 2: '#fbbf24', 1: '#7d8590'}
+DANGER_HELP = ('높음: 실제 서버였다면 감염·장악으로 이어지는 행동(내려받아 실행, 열쇠·예약 작업 심기, 기록·로그·방화벽 지우기, '
+               '다른 프로그램 종료·채굴). 중간: 파일을 들여오거나 실행하려는 시도, 비밀번호 변경. '
+               '낮음: 명령창 열기·장비 확인 같은 탐색.')
+
+# 진행 단계: 세션이 '어디까지 갔나'. 숫자가 클수록 더 깊이 들어간 것.
+FUNNEL = [(0, '명령 입력', '명령을 하나라도 입력한 세션'),
+          (1, '정보 수집', '장비 종류·환경을 살펴봄'),
+          (2, '파일 들여오기 시도', '외부에서 파일을 받거나 직접 만들려 함'),
+          (3, '실행 시도', '실행 권한을 주거나 스크립트를 실행하려 함'),
+          (4, '끝까지 실행', '같은 파일을 받아 권한을 주고 실행까지, 또는 숨긴 코드를 풀어 바로 실행')]
+_LEVEL = {'recon': 1, 'account': 2, 'tool': 2, 'run': 3}
+
+
+def danger_table(sc, rules):
+    st_ = behavior_stats(sc, rules)
+    st_['danger'] = st_['rule_id'].map(lambda r: DANGER.get(r, 1))
+    st_['danger_name'] = st_['danger'].map(DANGER_NAMES)
+    return st_.sort_values(['danger', 'sessions'], ascending=[False, False]).reset_index(drop=True)
+
+
+def funnel(sc, rules):
+    """세션별로 가장 깊이 간 단계를 구하고, 각 단계 '이상'까지 간 세션 수를 센다."""
+    pop = sc.commands[['source', 'session_id']].drop_duplicates()
+    level = {k: 0 for k in zip(pop['source'], pop['session_id'])}
+    for src, sid, rid in zip(sc.hits['source'], sc.hits['session_id'], sc.hits['rule_id']):
+        key = (src, sid)
+        if key not in level:
+            continue
+        lv = 4 if rid in ('S01', 'S02') else _LEVEL.get(rule_step(rules, rid), 0)
+        if lv > level[key]:
+            level[key] = lv
+    levels = pd.Series(list(level.values()), dtype=int)
+    total = len(levels)
+    rows = [{'level': lv, 'name': name, 'desc': desc, 'sessions': int((levels >= lv).sum()),
+             'percent': (levels >= lv).mean() * 100 if total else 0.0} for lv, name, desc in FUNNEL]
+    stopped_early = int((levels <= 1).sum())
+    return pd.DataFrame(rows), stopped_early, total

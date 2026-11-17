@@ -226,6 +226,20 @@ class DashboardBuildAndDataTests(unittest.TestCase):
         self.assertEqual(share, 0.0)  # 테스트 세션의 명령은 모두 규칙에 걸린다
         self.assertTrue(groups.empty or groups['lines'].sum() == 0)
 
+    def test_danger_and_funnel(self):
+        import detect as X
+        sc = D.scope(self.ds, self.f())
+        fn, early, total = X.funnel(sc, self.rules)
+        got = dict(zip(fn['name'], fn['sessions']))
+        self.assertEqual(total, 2)  # 명령을 입력한 세션: a1, s1
+        self.assertEqual(got['명령 입력'], 2)
+        self.assertEqual(got['정보 수집'], 2)    # s1(uname)은 정보 수집까지, a1은 끝까지
+        self.assertEqual(got['끝까지 실행'], 1)
+        self.assertEqual(early, 1)
+        table = X.danger_table(sc, self.rules)
+        self.assertEqual(table.iloc[0]['danger'], 3)  # 위험도 높은 행동이 먼저
+        self.assertEqual(table.set_index('rule_id').loc['S01', 'danger_name'], '높음')
+
     def test_display_helpers(self):
         self.assertEqual(D.defang('a\x00 HTTPS://1.2.3.4/x'), 'a\\x00 hxxps://1.2.x.x/x')
         self.assertEqual(D.defang('tftp://1.2.3.4', mask_ips=False), 'txftp://1.2.3.4')
