@@ -1,11 +1,27 @@
-# 대시보드 테마 (어두운 관제 화면). 저장소 루트에서 streamlit run 할 때 적용된다.
+# 대시보드 테마: 보안 관제(SOC) 콘솔. 파란 기가 도는 짙은 바탕 + 시안 강조 1색, 위험도 색(빨강·호박·초록)은 의미 전용.
+# 글꼴: 본문 IBM Plex Sans KR(한글·숫자 가독성), 코드·원문 IBM Plex Mono. 큰 제목·숫자는 CSS에서 Space Grotesk.
 [theme]
 base = "dark"
-primaryColor = "#22d3ee"
-backgroundColor = "#090b0e"
-secondaryBackgroundColor = "#12161b"
-textColor = "#e6e8eb"
-font = "sans serif"
+primaryColor = "#38d6e8"
+backgroundColor = "#0b0e12"
+secondaryBackgroundColor = "#121820"
+textColor = "#e6ebf0"
+linkColor = "#7fe3ef"
+borderColor = "#1e2731"
+dataframeBorderColor = "#1b232c"
+dataframeHeaderBackgroundColor = "#111821"
+codeBackgroundColor = "#0e1318"
+baseRadius = "8px"
+buttonRadius = "6px"
+showWidgetBorder = true
+showSidebarBorder = true
+font = "IBM Plex Sans KR:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap"
+headingFont = "IBM Plex Sans KR:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+
+[theme.sidebar]
+backgroundColor = "#0e1318"
 
 [browser]
 gatherUsageStats = false

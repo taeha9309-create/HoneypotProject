@@ -67,7 +67,7 @@ with C.card('PATTERN SUMMARY', help=f"학습: {ml.meta.get('trained_at', '?')} U
     kp = [('군집 대상 세션', f'{total:,}', C.CYAN, '명령을 입력한 세션'),
           ('군집 수', f'{len(real):,}', C.VIOLET, ' · '.join(f'{p.upper()} {n}' for p, n in by_proto.items())),
           ('상위 3개 군집 비중', f'{top3 / max(total, 1) * 100:.0f}%', C.AMBER, '소수의 봇이 대부분을 차지'),
-          ('노이즈 세션', f'{noise:,}', '#9aa3ad', f'{noise / max(total, 1) * 100:.1f}% · 드문 공격·스캐너'),
+          ('노이즈 세션', f'{noise:,}', '#b4bfca', f'{noise / max(total, 1) * 100:.1f}% · 드문 공격·스캐너'),
           ('신규 패턴 후보', f'{len(nv):,}종', C.RED, f"{int(nv['sessions'].sum()) if len(nv) else 0}세션 · 노이즈·이상치")]
     for col, (lab, val, color, sub) in zip(cols, kp):
         with col:
@@ -78,7 +78,7 @@ proto_opts = [p for p in ('telnet', 'ssh') if p in set(ct['protocol'])]
 proto = st.segmented_control('프로토콜', proto_opts, default=proto_opts[0], key='p_proto',
                              format_func=str.upper, label_visibility='collapsed') or proto_opts[0]
 cp = ct[ct['protocol'] == proto].reset_index(drop=True)
-palette = ['#22d3ee', '#fb923c', '#c084fc', '#bef264', '#f472b6', '#fbbf24', '#38bdf8', '#34d399']
+palette = ['#38d6e8', '#f0995a', '#a48bf5', '#a9dc6c', '#e77fb3', '#f2b84b', '#5b8def', '#43cc95']
 big = cp[cp['cluster_id'] >= 0].head(len(palette))
 color_of = {r.label: palette[i] for i, r in enumerate(big.itertuples())}
 
@@ -93,10 +93,10 @@ with left:
         pts['group'] = pts['label'].map(lambda l: l if l in color_of else '기타·노이즈')
         pts['preview'] = pts['preview'].map(lambda t: D.defang(t, 160))
         domain = list(color_of) + ['기타·노이즈']
-        C.chart(alt.Chart(pts).mark_circle(opacity=0.85, stroke='#0f1317', strokeWidth=0.6).encode(
+        C.chart(alt.Chart(pts).mark_circle(opacity=0.85, stroke='#10151b', strokeWidth=0.6).encode(
             x=alt.X('x:Q', title=None, axis=None), y=alt.Y('y:Q', title=None, axis=None),
             size=alt.Size('in_scope:Q', legend=None, scale=alt.Scale(type='sqrt', range=[25, 1400])),
-            color=alt.Color('group:N', title=None, scale=alt.Scale(domain=domain, range=list(color_of.values()) + ['#4b5563']),
+            color=alt.Color('group:N', title=None, scale=alt.Scale(domain=domain, range=list(color_of.values()) + ['#475260']),
                             legend=alt.Legend(orient='bottom', columns=3, labelLimit=160)),
             tooltip=[alt.Tooltip('label:N', title='군집'), alt.Tooltip('in_scope:Q', title='세션', format=','),
                      alt.Tooltip('preview:N', title='명령 흐름')]).properties(height=330))
@@ -107,8 +107,8 @@ with right:
                              '서울': cp['seoul'], '시드니': cp['syd'], '활동일': cp['days'],
                              '위험': cp['danger'].map(lambda d: X.DANGER_NAMES.get(d, '-'))})
         danger_color = {X.DANGER_NAMES[k]: c for k, c in X.DANGER_COLORS.items()}
-        styled = (view.style.map(lambda v: f"color: {color_of.get(v, '#9aa3ad')}; font-weight: 800", subset=['군집'])
-                  .map(lambda v: f"color: {danger_color.get(v, '#4b5563')}; font-weight: 700", subset=['위험']))
+        styled = (view.style.map(lambda v: f"color: {color_of.get(v, '#b4bfca')}; font-weight: 800", subset=['군집'])
+                  .map(lambda v: f"color: {danger_color.get(v, '#475260')}; font-weight: 700", subset=['위험']))
         ev = st.dataframe(styled, hide_index=True, width='stretch', height='content', on_select='rerun',
                           selection_mode='single-row', key=f'p_list_{proto}',
                           column_config={'이름': st.column_config.TextColumn(width='large'),
@@ -135,7 +135,7 @@ with C.card(f"{picked['label']} · {picked['name']}"):
         if cr.empty:
             st.caption('탐지 규칙에 걸린 행동이 없습니다.')
         else:
-            C.bar_list([(r.plain, r.percent, f'{r.percent:.0f}%', X.DANGER_COLORS.get(r.danger, '#7d8590'))
+            C.bar_list([(r.plain, r.percent, f'{r.percent:.0f}%', X.DANGER_COLORS.get(r.danger, '#7c8896'))
                         for r in cr.itertuples()])
         sv = P.cluster_servers(ds, sc, ml, proto, cid)
         if len(sv):

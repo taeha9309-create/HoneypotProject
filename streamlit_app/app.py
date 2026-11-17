@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common as C  # noqa: E402
 import data as D  # noqa: E402
 
-st.set_page_config(page_title='허니팟 대시보드', layout='wide', page_icon='🛡️')
+st.set_page_config(page_title='허니팟 대시보드', layout='wide', page_icon=':material/shield:')
 C.inject_css()
 
 try:
@@ -31,7 +31,7 @@ first, last = D.data_range(ds)
 
 # ---------------------------------------------------------------- 사이드바: 브랜드 + 데이터 기준 (메뉴는 st.navigation이 위에 그린다)
 with st.sidebar:
-    st.markdown('<div class="hp-brand"><b>🛡️ HONEYPOT</b><span>SSH·Telnet 공격 분석 대시보드</span></div>',
+    st.markdown('<div class="hp-brand"><b><i></i>HONEYPOT</b><span>SSH·Telnet 공격 분석 대시보드</span></div>',
                 unsafe_allow_html=True)
     for w in ds.warnings:
         st.warning(w)
@@ -74,10 +74,10 @@ with st.container(border=True, key='filter_bar'):
 st.session_state['filters'] = D.Filters(tuple(sources), tuple(protocols), start, end, mode == '전체 기간')
 
 here = Path(__file__).resolve().parent / 'views'
-pages = {'overview': st.Page(str(here / 'overview.py'), title='Overview', icon='📊', default=True),
-         'detail': st.Page(str(here / 'investigate.py'), title='세션 조사', icon='🔎'),
-         'detection': st.Page(str(here / 'detection.py'), title='탐지 분석', icon='🛡️'),
-         'patterns': st.Page(str(here / 'patterns.py'), title='패턴 분석 (ML)', icon='🧩'),
-         'intel': st.Page(str(here / 'intel.py'), title='위협 정보 (IOC)', icon='🚫')}
+pages = {'overview': st.Page(str(here / 'overview.py'), title='Overview', icon=':material/monitoring:', default=True),
+         'detail': st.Page(str(here / 'investigate.py'), title='세션 조사', icon=':material/manage_search:'),
+         'detection': st.Page(str(here / 'detection.py'), title='탐지 분석', icon=':material/policy:'),
+         'patterns': st.Page(str(here / 'patterns.py'), title='패턴 분석 (ML)', icon=':material/hub:'),
+         'intel': st.Page(str(here / 'intel.py'), title='위협 정보 (IOC)', icon=':material/block:')}
 st.session_state['pages'] = pages
 st.navigation(list(pages.values())).run()

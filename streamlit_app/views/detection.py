@@ -68,7 +68,7 @@ with C.card('DETECTION SUMMARY', help='분모는 조회 범위에서 명령을 �
           ('의미 있는 탐지 세션', f'{detected:,}', C.LIME, f'{detected / pop * 100:.0f}% · 셸 진입(B19)만 걸린 세션 제외'),
           ('위험도 높음 세션', f'{high_sessions:,}', C.RED, f'{high_sessions / pop * 100:.1f}%'),
           ('끝까지 실행 (S01·S02)', f'{full:,}', C.ORANGE, f'{full / pop * 100:.1f}%'),
-          ('초기 단계에서 멈춤', f'{stopped_early / pop * 100:.0f}%', '#9aa3ad', f'{stopped_early:,}개 · 셸 진입·정보 수집까지')]
+          ('초기 단계에서 멈춤', f'{stopped_early / pop * 100:.0f}%', '#b4bfca', f'{stopped_early:,}개 · 셸 진입·정보 수집까지')]
     for col, (lab, val, color, sub) in zip(cols, kp):
         with col:
             C.kpi(lab, val, color, sub)
@@ -79,7 +79,7 @@ with left:
     with C.card('진행 단계', help='세션별로 가장 깊이 간 단계를 구해 각 단계 "이상"까지 간 세션 수를 셌습니다. '
                                  + ' / '.join(f'{n}: {d}' for _, n, d in X.FUNNEL)):
         fn['text'] = fn.apply(lambda r: f"{r['sessions']:,} · {r['percent']:.0f}%", axis=1)
-        fn['color'] = [C.CYAN, '#38bdf8', C.AMBER, C.ORANGE, C.RED]
+        fn['color'] = [C.CYAN, '#5b8def', C.AMBER, C.ORANGE, C.RED]
         base = alt.Chart(fn).encode(
             y=alt.Y('name:N', sort=list(fn['name']), title=None, axis=alt.Axis(labelLimit=140, domain=False, ticks=False)),
             x=alt.X('sessions:Q', title=None, axis=None, scale=alt.Scale(domain=[0, pop * 1.55], nice=False)),
@@ -88,7 +88,7 @@ with left:
                      alt.Tooltip('percent:Q', title='비율(%)', format='.1f')])
         C.chart((base.mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3, height={'band': 0.6})
                  .encode(color=alt.Color('color:N', scale=None))
-                 + base.mark_text(align='left', dx=5, fontSize=11, color='#cbd2d9').encode(text='text:N'))
+                 + base.mark_text(align='left', dx=5, fontSize=11, color='#b4bfca').encode(text='text:N'))
                 .properties(height=32 * len(fn)))
         daily = X.step_daily(sc, rules, exclude_steps=('shell', 'recon'))
         if not daily.empty:

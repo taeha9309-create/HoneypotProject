@@ -27,9 +27,9 @@ STEPS = OrderedDict([
     ('other', ('기타 입력', '의미를 판단하기 어려운 입력')),
 ])
 
-STEP_COLORS = {'login': '#f472b6', 'shell': '#9aa3ad', 'recon': '#22d3ee', 'scan': '#7d8590', 'account': '#fbbf24',
-               'tool': '#fb923c', 'run': '#fb7185', 'persist': '#ef4444', 'hide': '#c084fc', 'impact': '#ef4444',
-               'other': '#4b5563'}
+STEP_COLORS = {'login': '#e77fb3', 'shell': '#b4bfca', 'recon': '#38d6e8', 'scan': '#7c8896', 'account': '#f2b84b',
+               'tool': '#f0995a', 'run': '#f0647a', 'persist': '#e5484d', 'hide': '#a48bf5', 'impact': '#e5484d',
+               'other': '#475260'}
 
 # 규칙 파일의 단계(ATT&CK 기준) 중 일반인에게 헷갈리는 것은 화면용으로 바꾼다.
 # B11(chmod 실행 권한)은 ATT&CK상 방어 회피지만, 읽는 사람에게는 '실행 준비'가 자연스럽다.
@@ -204,7 +204,7 @@ def chips_html(seen, danger):
     for k in keys:
         name, desc = STEPS[k]
         on = k in seen
-        color = STEP_COLORS[k] if on else '#2a3038'
+        color = STEP_COLORS[k] if on else '#27313c'
         out.append(f'<span class="hp-chip{" on" if on else ""}" style="border-color:{color};'
                    f'{"color:" + color if on else ""}" title="{escape(desc)}">{escape(name)}</span>')
     html = '<div class="hp-chips">' + '<span class="arrow">›</span>'.join(out) + '</div>'

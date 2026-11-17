@@ -22,26 +22,27 @@ from match_signatures import load_rules  # noqa: E402
 
 WORLD = ROOT / 'dashboard/assets/world.json'  # handoff 브랜치의 Natural Earth 국가 경계 (Korean names 포함)
 
-# 어두운 관제 화면 팔레트 (템플릿: 검정 배경 + 시안/파랑 막대 + 핑크 강조).
-# 같은 대상은 모든 차트에서 같은 색을 쓴다.
-CYAN = '#22d3ee'
-BLUE = '#2f8fe0'
-PINK = '#f472b6'
-VIOLET = '#c084fc'
-LIME = '#bef264'
-AMBER = '#fbbf24'
-RED = '#fb7185'
-GRID = '#20252c'
-AXIS = '#7d8590'
-INK = '#e6e8eb'
-SURFACE = '#0f1317'
-ORANGE = '#fb923c'
+# 관제 콘솔 팔레트. CSS의 :root 토큰과 같은 값이다(차트·HTML이 같은 색을 쓰도록 여기서도 정의).
+# 강조색은 시안 하나. 빨강·호박·초록은 위험도(의미) 전용, 나머지는 데이터 범주(프로토콜·허니팟·군집)용.
+CYAN = '#38d6e8'      # --accent
+BLUE = '#5b8def'
+ORANGE = '#f0995a'
+PINK = '#e77fb3'
+VIOLET = '#a48bf5'
+LIME = '#a9dc6c'
+AMBER = '#f2b84b'     # --warn
+RED = '#f0647a'       # --crit
+GREEN = '#43cc95'     # --ok
+GRID = '#1c242d'      # --line
+AXIS = '#7c8896'      # --ink-3
+INK = '#e6ebf0'       # --ink
+INK_2 = '#b4bfca'     # --ink-2
+SURFACE = '#10151b'   # --surface
+MUTED = '#475260'
 PROTOCOL_COLORS = {'ssh': CYAN, 'telnet': ORANGE}
-GREEN = '#34d399'
 SOURCE_COLORS = {'서울': GREEN, '시드니': VIOLET}
 BAR = CYAN
 ALERT = RED
-MUTED = '#4b5563'
 
 
 def parse_args():
@@ -98,39 +99,55 @@ def open_detail(**kw):
 
 CSS = """
 <style>
-.block-container {padding-top: 1.2rem; max-width: 1500px;}
-/* Streamlit 기본 개발자 메뉴(Deploy, ⋮)와 상단 장식 줄을 숨긴다. 사이드바 펼치기 버튼은 남긴다. */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+/* 관제 콘솔: 위에서 아래로 상태 → 할 일 → 규모 → 근거. 카드는 표면색 한 단계로만 구분하고 그림자는 쓰지 않는다. */
+:root {
+  --bg: #0b0e12; --surface: #10151b; --surface-2: #151c24; --line: #1c242d; --line-2: #27313c;
+  --ink: #e6ebf0; --ink-2: #b4bfca; --ink-3: #7c8896; --ink-4: #4e5966;
+  --accent: #38d6e8; --crit: #f0647a; --warn: #f2b84b; --ok: #43cc95;
+  --font-display: 'Space Grotesk', 'IBM Plex Sans KR', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  --fs-xs: .72rem; --fs-sm: .8rem; --fs-md: .9rem; --fs-lg: 1.05rem; --fs-xl: 1.55rem;
+  --fs-num: clamp(1.3rem, 2vw, 1.95rem);
+  color-scheme: dark;
+}
+.block-container {padding-top: 1.1rem; max-width: 1480px;}
+:focus-visible {outline: 2px solid var(--accent) !important; outline-offset: 2px;}
+@media (prefers-reduced-motion: reduce) {* {animation: none !important; transition: none !important;}}
+/* Streamlit 개발자 메뉴(Deploy, ⋮)와 장식 줄 숨김. 사이드바 펼치기 버튼은 남긴다. */
 [data-testid="stAppDeployButton"], [data-testid="stMainMenu"], [data-testid="stToolbarActions"],
 [data-testid="stDecoration"], [data-testid="stStatusWidget"] {display: none !important;}
 header[data-testid="stHeader"] {background: transparent; height: 2.2rem;}
-/* 사이드바 브랜드·데이터 기준 */
-.hp-brand {display: flex; flex-direction: column; margin: .2rem 0 .8rem 0;}
-.hp-brand b {font-weight: 900; font-size: 1.05rem; letter-spacing: .06em; color: #f3f4f6;}
-.hp-brand span {color: #7d8590; font-size: .75rem;}
-.hp-side-info {color: #9aa3ad; font-size: .74rem; line-height: 1.7; border-top: 1px solid #1c2128; padding-top: .6rem;}
-.hp-side-info .h {color: #cbd2d9; font-weight: 700; margin-bottom: .1rem;}
-.hp-side-info .note {color: #6b7280; margin-top: .3rem;}
-.hp-side-info a {color: #7dd3fc;}
-/* 본문 맨 위 조회 범위 바 */
-.st-key-filter_bar {background: #0f1317; padding: .35rem .9rem .5rem .9rem !important; margin-bottom: .2rem;}
-.st-key-filter_bar label p {font-size: .72rem !important; color: #9aa3ad !important; font-weight: 700; letter-spacing: .04em;}
+
+/* 카드 제목: 작은 대문자 라벨 */
+.hp-title {color: var(--ink-3); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .08em; text-transform: uppercase;}
+
+/* 사이드바 */
+.hp-brand {display: flex; flex-direction: column; gap: .15rem; margin: .1rem 0 .9rem 0;}
+.hp-brand b {font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; letter-spacing: .16em; color: var(--ink);}
+.hp-brand b i {display: inline-block; width: .5rem; height: .5rem; border-radius: 1px; background: var(--accent);
+               margin-right: .55rem; transform: rotate(45deg) translateY(-.12rem);}
+.hp-brand span {color: var(--ink-3); font-size: var(--fs-xs);}
+.hp-side-info {color: var(--ink-3); font-size: var(--fs-xs); line-height: 1.75; border-top: 1px solid var(--line); padding-top: .7rem;}
+.hp-side-info .h {color: var(--ink-2); font-weight: 600; letter-spacing: .06em; margin-bottom: .15rem;}
+.hp-side-info .note {color: var(--ink-4); margin-top: .3rem;}
+.hp-side-info a {color: var(--accent);}
+
+/* 조회 범위 바 */
+.st-key-filter_bar {background: var(--surface); padding: .3rem .9rem .5rem .9rem !important; margin-bottom: .15rem;}
+.st-key-filter_bar label p {font-size: var(--fs-xs) !important; color: var(--ink-3) !important; font-weight: 600;
+                            letter-spacing: .06em;}
 .hp-range {display: flex; flex-direction: column;}
-/* 순위 막대 목록: 라벨 | 막대 | 값. 좁은 화면에서는 라벨이 위로 올라간다 */
-.hp-bars {display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto; gap: .3rem .6rem;
-          align-items: center; font-size: .8rem; margin: .2rem 0 .3rem 0;}
-.hp-bars .r {display: contents;}
-.hp-bars .l {color: #cbd2d9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;}
-.hp-bars .t {height: 12px; background: #161b21; border-radius: 3px; overflow: hidden;}
-.hp-bars .f {height: 100%; border-radius: 3px;}
-.hp-bars .v {color: #e6e8eb; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; font-size: .78rem;}
-.hp-bars-note {color: #7d8590; font-size: .72rem; margin-top: .2rem;}
-@media (max-width: 1100px) {
-  .hp-bars {grid-template-columns: minmax(0, 1fr) auto;}
-  .hp-bars .l {grid-column: 1 / -1; text-align: left; margin-bottom: -.15rem;}
-}
-.hp-range span {font-size: .72rem; color: #9aa3ad; font-weight: 700; letter-spacing: .04em; margin-bottom: .25rem;}
-.hp-range b {color: #e6e8eb; font-size: .95rem; font-variant-numeric: tabular-nums; padding: .35rem 0;}
-/* 같은 줄 카드 높이 맞추기: 열을 줄 높이만큼 늘리고, 열의 마지막 카드가 남은 높이를 채운다(안쪽 스크롤 없음) */
+.hp-range span {font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; letter-spacing: .06em; margin-bottom: .25rem;}
+.hp-range b {color: var(--ink); font-family: var(--font-mono); font-weight: 500; font-size: var(--fs-md); padding: .35rem 0;}
+
+/* 페이지 머리 */
+.hp-head {font-family: var(--font-display); font-size: var(--fs-xl); font-weight: 700; color: var(--ink);
+          text-wrap: balance; line-height: 1.25;}
+.hp-head span {color: var(--ink-3); font-weight: 500;}
+.hp-sub {color: var(--ink-3); font-size: var(--fs-sm); margin-top: .2rem; max-width: 75ch;}
+
+/* 같은 줄 카드 높이 맞추기 (안쪽 스크롤 없이) */
 [data-testid="stHorizontalBlock"] {align-items: stretch;}
 [data-testid="stColumn"] {display: flex; flex-direction: column;}
 [data-testid="stColumn"] > [data-testid="stVerticalBlock"] {flex: 1 1 auto;}
@@ -138,73 +155,96 @@ header[data-testid="stHeader"] {background: transparent; height: 2.2rem;}
     flex: 1 1 auto; display: flex; flex-direction: column;}
 [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] {
     flex: 1 1 auto;}
-h1, h2, h3 {letter-spacing: .02em;}
-.hp-head {font-size: 1.55rem; font-weight: 800; letter-spacing: .04em; color: #f3f4f6; text-transform: uppercase;}
-.hp-head span {color: #7d8590; font-weight: 700;}
-.hp-sub {color: #7d8590; font-size: .82rem; margin-top: .15rem;}
-.hp-title {color: #9aa3ad; font-size: .74rem; font-weight: 700; letter-spacing: .06em;
-           margin: -.2rem 0 .3rem 0;}
-div[data-testid="stVerticalBlockBorderWrapper"] {background: #0f1317; border-color: #1c2128 !important;}
-.hp-kpi {padding: .1rem .2rem .2rem .2rem;}
-.hp-kpi .lab {font-size: .8rem; font-weight: 600; padding-bottom: .35rem; border-bottom: 1px solid #2a3038;}
-.hp-kpi .lab {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-.hp-kpi .val {font-size: clamp(1.25rem, 2.1vw, 2.05rem); font-weight: 800; line-height: 1.15; margin-top: .45rem;
+
+/* KPI: 색 라벨 + 가는 선 + 큰 숫자(디스플레이 글꼴, 고정폭 숫자) */
+.hp-kpi {padding: .05rem .15rem .15rem .15rem;}
+.hp-kpi .lab {font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; padding-bottom: .35rem;
+              border-bottom: 1px solid var(--line-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.hp-kpi .val {font-family: var(--font-display); font-size: var(--fs-num); font-weight: 600; line-height: 1.15; margin-top: .4rem;
               font-variant-numeric: tabular-nums; white-space: nowrap;}
-.hp-share {margin-top: .5rem; padding-top: .6rem; border-top: 1px dashed #2a3038;}
-.hp-share .ttl {color: #9aa3ad; font-size: .72rem; font-weight: 700; letter-spacing: .06em; margin-bottom: .35rem;}
-.hp-share .bar {display: flex; height: 22px; border-radius: 4px; overflow: hidden; background: #1a1f26;}
-.hp-share .seg {display: flex; align-items: center; justify-content: center; color: #0b0d10; font-size: .72rem;
-                font-weight: 800; white-space: nowrap; overflow: hidden; border-right: 2px solid #0f1317;}
+.hp-kpi .sub {color: var(--ink-3); font-size: var(--fs-xs); margin-top: .15rem; min-height: 1.1rem;}
+.hp-kpi .up {color: var(--crit);} .hp-kpi .down {color: var(--ok);}
+
+/* 비율 막대 */
+.hp-share {margin-top: .55rem; padding-top: .6rem; border-top: 1px dashed var(--line-2);}
+.hp-share .ttl {color: var(--ink-3); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; margin-bottom: .35rem;}
+.hp-share .bar {display: flex; height: 20px; border-radius: 4px; overflow: hidden; background: var(--surface-2);}
+.hp-share .seg {display: flex; align-items: center; justify-content: center; color: var(--bg); font-size: var(--fs-xs);
+                font-weight: 700; white-space: nowrap; overflow: hidden; border-right: 2px solid var(--surface);}
 .hp-share .seg:last-child {border-right: none;}
-.hp-share .lg {display: flex; flex-wrap: wrap; gap: .15rem .9rem; font-size: .74rem; color: #cbd2d9; margin-top: .4rem;}
-.hp-share .nt {color: #7d8590; font-size: .7rem; margin-top: .2rem;}
-.hp-kpi .sub {color: #7d8590; font-size: .74rem; margin-top: .15rem; min-height: 1.1rem;}
-.hp-kpi .up {color: #fb7185;} .hp-kpi .down {color: #34d399;}
-.hp-status {display: flex; gap: 1.6rem; flex-wrap: wrap; color: #7d8590; font-size: .76rem; margin: .4rem 0 .6rem 0;}
-.hp-status b {color: #cbd2d9;} .hp-dot {display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.35rem;}
-.hp-story {font-size: 1.02rem; line-height: 1.7; color: #e6e8eb; margin: .2rem 0 .6rem 0;}
-.hp-story code {background: #1a1f26; color: #f472b6; padding: .05rem .35rem; border-radius: 4px;}
+.hp-share .lg {display: flex; flex-wrap: wrap; gap: .15rem .9rem; font-size: var(--fs-xs); color: var(--ink-2); margin-top: .4rem;}
+.hp-share .nt {color: var(--ink-3); font-size: var(--fs-xs); margin-top: .2rem;}
+.hp-dot {display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; margin-right: .35rem;}
+
+/* 순위 막대 목록: 라벨 | 막대 | 값 (좁으면 라벨이 위로) */
+.hp-bars {display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto; gap: .32rem .6rem;
+          align-items: center; font-size: var(--fs-sm); margin: .2rem 0 .3rem 0;}
+.hp-bars .r {display: contents;}
+.hp-bars .l {color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;}
+.hp-bars .t {height: 10px; background: var(--surface-2); border-radius: 2px; overflow: hidden;}
+.hp-bars .f {height: 100%; border-radius: 2px;}
+.hp-bars .v {color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; text-align: right;}
+.hp-bars-note {color: var(--ink-3); font-size: var(--fs-xs); margin-top: .2rem;}
+@media (max-width: 1100px) {
+  .hp-bars {grid-template-columns: minmax(0, 1fr) auto;}
+  .hp-bars .l {grid-column: 1 / -1; text-align: left; margin-bottom: -.15rem;}
+}
+
+/* 데이터 상태 줄 */
+.hp-status {display: flex; gap: 1.6rem; flex-wrap: wrap; color: var(--ink-3); font-size: var(--fs-xs); margin: .35rem 0 .55rem 0;}
+.hp-status b {color: var(--ink-2); font-weight: 600;}
+
+/* 상황 배너: 위험도 색으로 옅게 칠한 띠 + 등급 칩 (테두리 레일 없음). --sev는 화면에서 넣는다 */
+.hp-banner {--sev: var(--crit); display: flex; gap: 1rem; align-items: center; border-radius: 8px; padding: .75rem 1rem;
+            border: 1px solid color-mix(in srgb, var(--sev) 45%, transparent);
+            background: color-mix(in srgb, var(--sev) 9%, var(--bg)); margin: .3rem 0 .35rem 0;}
+.hp-banner .lvl {color: var(--bg); background: var(--sev); font-family: var(--font-display); font-weight: 700;
+                 font-size: var(--fs-md); letter-spacing: .08em; padding: .3rem .85rem; border-radius: 4px; white-space: nowrap;}
+.hp-banner .t1 {color: var(--ink); font-weight: 600; font-size: var(--fs-md); text-wrap: balance;}
+.hp-banner .t2 {color: var(--ink-2); font-size: var(--fs-sm); margin-top: .15rem;}
+
+/* 지금 할 일: 조치 종류 칩 + 내용 / 새로 나타난 것: 큰 숫자 + 내용 */
+.hp-todo .row, .hp-new .row {display: flex; gap: .75rem; align-items: flex-start; padding: .45rem 0; border-bottom: 1px solid var(--line);}
+.hp-todo .row:last-child, .hp-new .row:last-child {border-bottom: none;}
+.hp-todo .act {--c: var(--accent); flex: none; width: 3.1rem; text-align: center; font-size: var(--fs-xs); font-weight: 700;
+               color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+               background: color-mix(in srgb, var(--c) 10%, transparent); border-radius: 4px; padding: .1rem 0; margin-top: .1rem;}
+.hp-todo .a, .hp-new .a {color: var(--ink); font-weight: 600; font-size: var(--fs-md);}
+.hp-todo .b, .hp-new .b {color: var(--ink-3); font-size: var(--fs-xs); margin-top: .1rem;}
+.hp-new .n {font-family: var(--font-display); font-size: 1.45rem; font-weight: 600; min-width: 2.4rem; text-align: right;
+            line-height: 1.15; font-variant-numeric: tabular-nums;}
+
+/* 세션 이야기 */
+.hp-story {font-size: var(--fs-lg); line-height: 1.75; color: var(--ink); margin: .2rem 0 .6rem 0; max-width: 80ch;}
+.hp-story code {background: var(--surface-2); color: var(--accent); font-family: var(--font-mono); padding: .05rem .35rem; border-radius: 3px;}
 .hp-chips {display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: .3rem 0 .2rem 0;}
-.hp-chips .arrow {color: #3b434d; font-weight: 800;}
-.hp-chip {border: 1px solid; border-radius: 999px; padding: .12rem .6rem; font-size: .76rem; color: #4b5563;}
-.hp-chip.on {font-weight: 700; background: rgba(255,255,255,.03);}
-.hp-danger {margin-top: .5rem; color: #fb7185; font-weight: 700; font-size: .85rem;}
+.hp-chips .arrow {color: var(--ink-4); font-weight: 700;}
+.hp-chip {border: 1px solid; border-radius: 4px; padding: .1rem .55rem; font-size: var(--fs-xs); color: var(--ink-4);}
+.hp-chip.on {font-weight: 600;}
+.hp-danger {margin-top: .5rem; color: var(--crit); font-weight: 600; font-size: var(--fs-sm);}
+
+/* 시간순 흐름 */
 .hp-flow {padding-right: .4rem;}
 .hp-flow-row {display: grid; grid-template-columns: 4.6rem 1.2rem 1fr; gap: .2rem; padding: .15rem 0;}
-.hp-flow-row .t {color: #7d8590; font-size: .74rem; padding-top: .25rem; font-variant-numeric: tabular-nums;}
+.hp-flow-row .t {color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-xs); padding-top: .25rem;}
 .hp-flow-row .rail {position: relative; display: flex; justify-content: center;}
-.hp-flow-row .rail::before {content: ''; position: absolute; top: 0; bottom: -0.3rem; width: 2px; background: #1f252c;}
-.hp-flow-row .dot {position: relative; width: .7rem; height: .7rem; border-radius: 50%; margin-top: .35rem;
-                   box-shadow: 0 0 0 3px #0f1317;}
-.hp-flow-row .body {padding-bottom: .55rem; border-bottom: 1px solid #161b21;}
+.hp-flow-row .rail::before {content: ''; position: absolute; top: 0; bottom: -0.3rem; width: 1px; background: var(--line-2);}
+.hp-flow-row .dot {position: relative; width: .6rem; height: .6rem; border-radius: 50%; margin-top: .4rem; box-shadow: 0 0 0 3px var(--bg);}
+.hp-flow-row .body {padding-bottom: .55rem; border-bottom: 1px solid var(--line); min-width: 0;}
 .hp-flow-row .head {display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap;}
-.hp-flow-row .step {font-size: .76rem; font-weight: 800; white-space: nowrap;}
-.hp-flow-row .what {font-size: .92rem; color: #f3f4f6; font-weight: 600;}
-.hp-flow-row .meta {font-size: .72rem; color: #7d8590; margin-top: .1rem;}
-.hp-flow-row .b {padding: 0 .35rem; border-radius: 4px; font-weight: 700;}
-.hp-flow-row .b.rule {color: #fb7185; background: rgba(251,113,133,.12);}
-.hp-flow-row .b.guess {color: #fbbf24; background: rgba(251,191,36,.12);}
-.hp-flow-row .b.none {color: #9aa3ad; background: rgba(154,163,173,.12);}
-.hp-flow-row .b.obs {color: #22d3ee; background: rgba(34,211,238,.12);}
-.hp-flow-row .b.fail {color: #f87171; background: rgba(248,113,113,.15);}
-.hp-flow-row .raw {font-family: ui-monospace, SFMono-Regular, Consolas, monospace; margin: .25rem 0 0 0; padding: .3rem .5rem; background: #0b0e12; border: 1px solid #1a1f26;
-                      border-radius: 4px; color: #8b949e; font-size: .72rem; white-space: pre-wrap; word-break: break-all;
-                      max-height: 6.5rem; overflow: hidden;}
-.hp-flow-more {color: #7d8590; font-size: .78rem; padding: .4rem 0;}
-.hp-banner {display: flex; gap: 1rem; align-items: center; border: 1px solid; border-left-width: 6px; border-radius: 8px;
-            padding: .7rem 1rem; background: #0f1317; margin: .3rem 0 .4rem 0;}
-.hp-banner .lvl {color: #0b0d10; font-weight: 900; font-size: 1.05rem; padding: .35rem .9rem; border-radius: 6px;
-                 white-space: nowrap;}
-.hp-banner .t1 {color: #f3f4f6; font-weight: 700; font-size: 1rem;}
-.hp-banner .t2 {color: #9aa3ad; font-size: .82rem; margin-top: .1rem;}
-.hp-todo .row, .hp-new .row {display: flex; gap: .7rem; align-items: flex-start; padding: .38rem 0;
-                             border-bottom: 1px solid #161b21;}
-.hp-todo .row:last-child, .hp-new .row:last-child {border-bottom: none;}
-.hp-todo .bar {width: 4px; align-self: stretch; border-radius: 2px; flex: none;}
-.hp-todo .a, .hp-new .a {color: #f3f4f6; font-weight: 700; font-size: .9rem;}
-.hp-todo .b, .hp-new .b {color: #7d8590; font-size: .76rem;}
-.hp-new .n {font-size: 1.5rem; font-weight: 800; min-width: 2.6rem; text-align: right; line-height: 1.2;
-            font-variant-numeric: tabular-nums;}
+.hp-flow-row .step {font-size: var(--fs-xs); font-weight: 700; letter-spacing: .04em; white-space: nowrap;}
+.hp-flow-row .what {font-size: var(--fs-md); color: var(--ink); font-weight: 600;}
+.hp-flow-row .meta {font-size: var(--fs-xs); color: var(--ink-3); margin-top: .1rem;}
+.hp-flow-row .b {padding: 0 .35rem; border-radius: 3px; font-weight: 600;}
+.hp-flow-row .b.rule {color: var(--crit); background: color-mix(in srgb, var(--crit) 13%, transparent);}
+.hp-flow-row .b.guess {color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent);}
+.hp-flow-row .b.none {color: var(--ink-3); background: color-mix(in srgb, var(--ink-3) 13%, transparent);}
+.hp-flow-row .b.obs {color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent);}
+.hp-flow-row .b.fail {color: var(--crit); background: color-mix(in srgb, var(--crit) 16%, transparent);}
+.hp-flow-row .raw {font-family: var(--font-mono); margin: .3rem 0 0 0; padding: .35rem .55rem; background: var(--bg);
+                   border: 1px solid var(--line); border-radius: 4px; color: var(--ink-3); font-size: var(--fs-xs);
+                   white-space: pre-wrap; word-break: break-all; max-height: 6.5rem; overflow: hidden;}
+.hp-flow-more {color: var(--ink-3); font-size: var(--fs-sm); padding: .4rem 0;}
 </style>
 """
 
@@ -217,11 +257,11 @@ def _dark_theme():
     return {'config': {
         'background': 'transparent',
         'view': {'stroke': None},
-        'font': 'sans-serif',
+        'font': "'IBM Plex Sans KR', sans-serif",
         'axis': {'domainColor': GRID, 'gridColor': GRID, 'tickColor': GRID, 'labelColor': AXIS,
                  'titleColor': AXIS, 'labelFontSize': 11, 'titleFontSize': 11, 'titleFontWeight': 'normal'},
-        'legend': {'labelColor': '#cbd2d9', 'titleColor': AXIS, 'labelFontSize': 11, 'symbolType': 'circle'},
-        'text': {'color': '#cbd2d9'},
+        'legend': {'labelColor': INK_2, 'titleColor': AXIS, 'labelFontSize': 11, 'symbolType': 'circle'},
+        'text': {'color': INK_2},
         'title': {'color': INK},
     }}
 
@@ -238,7 +278,7 @@ def chart(c, **kw):
     st.altair_chart(c, width='stretch', theme=None, **kw)
 
 
-BASIS_COLORS = {'규칙 일치': RED, '입력 기반 추정': AMBER, '근거 부족': '#7d8590'}
+BASIS_COLORS = {'규칙 일치': RED, '입력 기반 추정': AMBER, '근거 부족': AXIS}
 
 
 def style_commands(df):
@@ -253,7 +293,7 @@ def style_commands(df):
     styler = df.style.apply(row_behavior, axis=1) if {'근거', '행동 설명'} <= set(df.columns) else df.style
     rules = [('시각', lambda v: f'color: {AXIS}'), ('IP', lambda v: f'color: {VIOLET}'),
              ('프로토콜', lambda v: f"color: {PROTOCOL_COLORS.get(v, INK)}; font-weight: 600"),
-             ('명령', lambda v: 'color: #f3f4f6'), ('근거', basis_color),
+             ('명령', lambda v: f'color: {INK}'), ('근거', basis_color),
              ('탐지 규칙', lambda v: f'color: {CYAN}; font-weight: 600')]
     for col, fn in rules:
         if col in df.columns:

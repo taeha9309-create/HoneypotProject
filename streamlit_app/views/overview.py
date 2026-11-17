@@ -62,8 +62,8 @@ status = D.source_status(ds, f)
 
 # ---------------------------------------------------------------- ① 상황 등급
 st.markdown(
-    f'<div class="hp-banner" style="border-color:{br["color"]}">'
-    f'<div class="lvl" style="background:{br["color"]}">{escape(br["level"])}</div>'
+    f'<div class="hp-banner" style="--sev:{br["color"]}">'
+    f'<div class="lvl">{escape(br["level"])}</div>'
     f'<div class="txt"><div class="t1">{escape(br["label"])} 상황: {escape(" · ".join(br["reasons"]))}</div>'
     f'<div class="t2">접속 {br["sessions"]:,}세션'
     + (f' (직전 같은 기간 대비 {br["change"]:+.0f}%)' if br['change'] is not None else '')
@@ -87,16 +87,18 @@ with left:
         fs = b['files']
         checks = b['checks']
         telnet = checks[checks['점검 항목'].str.startswith('외부에 열린 Telnet')]
-        todo = [(C.RED, f'1순위 IP {t1:,}개 방화벽 차단',
+        # (조치 종류, 색, 할 일, 설명): 차단은 위험색, 등록·점검·반영은 다른 색으로 한눈에 구분
+        todo = [('차단', C.RED, f'1순위 IP {t1:,}개 방화벽 차단',
                  f'내려받아 실행·다운로드·흔적 삭제를 한 IP (2순위 {int((bl["tier"] == 2).sum()):,}개는 검토)'),
-                (C.ORANGE, f'다운로드 서버 {len(b["servers"]):,}개로 나가는 연결 차단·확인',
+                ('차단', C.RED, f'다운로드 서버 {len(b["servers"]):,}개로 나가는 연결 차단·확인',
                  '우리 서버에서 이 주소로 접속한 기록이 있으면 감염 의심'),
-                (C.LIME, f'파일 해시 {fs["unique_hashes"]:,}개 백신·EDR 등록', '내부 서버에서 같은 파일 검색'),
-                (C.AMBER, '외부에 열린 Telnet·IoT 장비 점검', telnet['근거'].iloc[0] if len(telnet) else 'Telnet 접속 비율 확인'),
-                (C.PINK, '비밀번호 금지 목록 반영', '공격에 쓰인 아이디·비밀번호와 같은 계정이 없는지 점검')]
+                ('등록', C.CYAN, f'파일 해시 {fs["unique_hashes"]:,}개 백신·EDR 등록', '내부 서버에서 같은 파일 검색'),
+                ('점검', C.AMBER, '외부에 열린 Telnet·IoT 장비 점검',
+                 telnet['근거'].iloc[0] if len(telnet) else 'Telnet 접속 비율 확인'),
+                ('반영', C.VIOLET, '비밀번호 금지 목록 반영', '공격에 쓰인 아이디·비밀번호와 같은 계정이 없는지 점검')]
         st.markdown('<div class="hp-todo">' + ''.join(
-            f'<div class="row"><span class="bar" style="background:{c}"></span><div><div class="a">{escape(a)}</div>'
-            f'<div class="b">{escape(d_)}</div></div></div>' for c, a, d_ in todo) + '</div>', unsafe_allow_html=True)
+            f'<div class="row"><span class="act" style="--c:{c}">{k_}</span><div><div class="a">{escape(a)}</div>'
+            f'<div class="b">{escape(d_)}</div></div></div>' for k_, c, a, d_ in todo) + '</div>', unsafe_allow_html=True)
         a, b_ = st.columns(2)
         with a:
             st.page_link(st.session_state['pages']['intel'], label='위협 정보(IOC)에서 목록·CSV 보기 →')
@@ -114,7 +116,7 @@ with right:
                  ', '.join(br['new_danger_ips']['src_ip'].map(D.mask_ip).head(3)) if len(br['new_danger_ips']) else ''),
                 ('처음 관측된 행동', len(br['new_rules']), C.VIOLET, ', '.join(n for _, n in br['new_rules'][:2]))]
         st.markdown('<div class="hp-new">' + ''.join(
-            f'<div class="row"><div class="n" style="color:{c if n else "#3b434d"}">{n:,}</div>'
+            f'<div class="row"><div class="n" style="color:{c if n else C.MUTED}">{n:,}</div>'
             f'<div><div class="a">{escape(lab)}</div><div class="b">{escape(ex) if ex else "-"}</div></div></div>'
             for lab, n, c, ex in rows) + '</div>', unsafe_allow_html=True)
 
@@ -185,9 +187,9 @@ with left:
                             legend=alt.Legend(orient='top', labelExpr='upper(datum.label)' if by == 'protocol' else 'datum.label')),
             tooltip=[alt.Tooltip('bucket:T', title='시각', format='%m-%d %H:00' if grain == 'h' else '%m-%d'),
                      alt.Tooltip('group:N', title=split_by), alt.Tooltip('sessions:Q', title='세션', format=',')])
-        rule = alt.Chart(pd.DataFrame({'avg': [avg]})).mark_rule(color='#9fb3c8', strokeDash=[4, 4]).encode(y='avg:Q')
+        rule = alt.Chart(pd.DataFrame({'avg': [avg]})).mark_rule(color='#b4bfca', strokeDash=[4, 4]).encode(y='avg:Q')
         label = alt.Chart(pd.DataFrame({'avg': [avg], 'text': [f'평균 {avg:,.0f}/{unit}']})).mark_text(
-            align='left', dx=4, dy=-7, color='#9fb3c8', fontSize=11).encode(y='avg:Q', x=alt.value(0), text='text:N')
+            align='left', dx=4, dy=-7, color='#b4bfca', fontSize=11).encode(y='avg:Q', x=alt.value(0), text='text:N')
         C.chart((bars + rule + label).properties(height=230))
 with right:
     ct = D.countries(sc)
@@ -237,7 +239,7 @@ with c2:
         else:
             pct = au['success'] / max(au['total'], 1) * 100
             C.share_bar(f"시도 {au['total']:,}건", [('성공', pct, C.PINK, f"성공 {au['success']:,} ({pct:.1f}%)"),
-                                                   ('실패', 100 - pct, '#4b5563', f"실패 {au['failed']:,}")])
+                                                   ('실패', 100 - pct, '#475260', f"실패 {au['failed']:,}")])
             st.markdown('<div class="hp-bars-note" style="margin-top:.4rem">많이 시도된 아이디 / 비밀번호</div>',
                         unsafe_allow_html=True)
             C.bar_list([(v, n, f'{n:,}', C.PINK) for v, n in zip(au['pairs']['value'].head(6), au['pairs']['count'].head(6))])
@@ -247,7 +249,7 @@ with c3:
         tried = max(fs['downloads'] + fs['failed'], 1)
         C.share_bar(f"다운로드 시도 {fs['downloads'] + fs['failed']:,}건",
                     [('성공', fs['downloads'] / tried * 100, C.ORANGE, f"성공 {fs['downloads']:,}"),
-                     ('실패', fs['failed'] / tried * 100, '#4b5563', f"실패 {fs['failed']:,}")])
+                     ('실패', fs['failed'] / tried * 100, '#475260', f"실패 {fs['failed']:,}")])
         files = fs['files'].head(6)
         if files.empty:
             st.caption('이 범위에서 수집된 파일이 없습니다.')

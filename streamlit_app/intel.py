@@ -233,11 +233,11 @@ def threat_level(br, sc_window, rules):
     if len(br['new_hashes']):
         reasons.append(f"새 파일 해시 {len(br['new_hashes'])}개")
     if reasons:
-        return '위험', '#fb7185', reasons, s01, high
+        return '위험', '#f0647a', reasons, s01, high
     if high or len(br['new_danger_ips']):
-        return '주의', '#fbbf24', [f'위험도 높음 행동 {high}세션'] + (
+        return '주의', '#f2b84b', [f'위험도 높음 행동 {high}세션'] + (
             [f"새 위험 IP {len(br['new_danger_ips'])}개"] if len(br['new_danger_ips']) else []), s01, high
-    return '안정', '#34d399', ['위험도 높음 행동이 관측되지 않음'], s01, high
+    return '안정', '#43cc95', ['위험도 높음 행동이 관측되지 않음'], s01, high
 
 
 def briefing(ds, rules, f):
