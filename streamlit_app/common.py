@@ -98,7 +98,25 @@ def open_detail(**kw):
 
 CSS = """
 <style>
-.block-container {padding-top: 2.2rem; max-width: 1500px;}
+.block-container {padding-top: 1.2rem; max-width: 1500px;}
+/* Streamlit 기본 개발자 메뉴(Deploy, ⋮)와 상단 장식 줄을 숨긴다. 사이드바 펼치기 버튼은 남긴다. */
+[data-testid="stAppDeployButton"], [data-testid="stMainMenu"], [data-testid="stToolbarActions"],
+[data-testid="stDecoration"], [data-testid="stStatusWidget"] {display: none !important;}
+header[data-testid="stHeader"] {background: transparent; height: 2.2rem;}
+/* 사이드바 브랜드·데이터 기준 */
+.hp-brand {display: flex; flex-direction: column; margin: .2rem 0 .8rem 0;}
+.hp-brand b {font-weight: 900; font-size: 1.05rem; letter-spacing: .06em; color: #f3f4f6;}
+.hp-brand span {color: #7d8590; font-size: .75rem;}
+.hp-side-info {color: #9aa3ad; font-size: .74rem; line-height: 1.7; border-top: 1px solid #1c2128; padding-top: .6rem;}
+.hp-side-info .h {color: #cbd2d9; font-weight: 700; margin-bottom: .1rem;}
+.hp-side-info .note {color: #6b7280; margin-top: .3rem;}
+.hp-side-info a {color: #7dd3fc;}
+/* 본문 맨 위 조회 범위 바 */
+.st-key-filter_bar {background: #0f1317; padding: .35rem .9rem .5rem .9rem !important; margin-bottom: .2rem;}
+.st-key-filter_bar label p {font-size: .72rem !important; color: #9aa3ad !important; font-weight: 700; letter-spacing: .04em;}
+.hp-range {display: flex; flex-direction: column;}
+.hp-range span {font-size: .72rem; color: #9aa3ad; font-weight: 700; letter-spacing: .04em; margin-bottom: .25rem;}
+.hp-range b {color: #e6e8eb; font-size: .95rem; font-variant-numeric: tabular-nums; padding: .35rem 0;}
 /* 같은 줄 카드 높이 맞추기: 열을 줄 높이만큼 늘리고, 열의 마지막 카드가 남은 높이를 채운다(안쪽 스크롤 없음) */
 [data-testid="stHorizontalBlock"] {align-items: stretch;}
 [data-testid="stColumn"] {display: flex; flex-direction: column;}

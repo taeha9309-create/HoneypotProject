@@ -9,3 +9,6 @@ font = "sans serif"
 
 [browser]
 gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"   # Deploy 등 개발자 메뉴 숨김
