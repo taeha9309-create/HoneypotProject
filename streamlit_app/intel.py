@@ -116,6 +116,20 @@ def ip_intel(ds, sc, rules):
             out.append('반복 접속')
         return out
     base['reasons'] = base.apply(reasons, axis=1)
+    # 우선순위: 1 즉시 차단 권장 / 2 검토 후 차단 / 3 관찰
+    # 다른 악성코드 종료(B12)·채굴(B13)만 있는 IP는 2순위, 그 밖의 위험도 높음 행동은 1순위
+    serious = set(h.loc[(h['danger'] >= 3) & ~h['rule_id'].isin(['B12', 'B13']), 'src_ip'])
+
+    def tier(r):
+        rs = set(r['reasons'])
+        if not rs:
+            return 0
+        if '내려받아 실행' in rs or '다운로드 시도' in rs or r['src_ip'] in serious:
+            return 1
+        if '위험 행동' in rs or '무차별 대입' in rs:
+            return 2
+        return 3
+    base['tier'] = base.apply(tier, axis=1)
     base['new'] = ~base['src_ip'].isin(seen_before) if not sc.f.full_period else False
     base['score'] = (base['reasons'].map(len) * 10 + base['danger'] * 5
                      + base['sessions'].clip(upper=500) / 50 + base['attempts'].clip(upper=1000) / 100)
@@ -123,8 +137,14 @@ def ip_intel(ds, sc, rules):
     return base.sort_values(['score', 'sessions'], ascending=False).reset_index(drop=True)
 
 
+TIER_NAMES = {1: '1순위 · 즉시 차단 권장', 2: '2순위 · 검토 후 차단', 3: '3순위 · 관찰'}
+TIER_HELP = ('1순위: 파일을 내려받아 실행했거나, 다운로드를 시도했거나, 흔적 삭제·방화벽 해제·열쇠/예약 작업 심기를 한 IP. '
+             '2순위: 다른 악성코드 종료(봇넷 감염 시도)나 무차별 대입(인증 50회 이상). 3순위: 여러 날 반복 접속만.')
+
+
 def blocklist(ipi):
-    return ipi[ipi['reasons'].map(bool) & (ipi['kind'] == '공인 IP')].reset_index(drop=True)
+    bl = ipi[ipi['reasons'].map(bool) & (ipi['kind'] == '공인 IP')]
+    return bl.sort_values(['tier', 'score'], ascending=[True, False]).reset_index(drop=True)
 
 
 # ---------------------------------------------------------------- 공격 계정
@@ -189,12 +209,33 @@ def shared_ips(sc):
 
 # ---------------------------------------------------------------- 변화 브리핑
 
-def briefing_window(ds, f):
-    """비교 기준: 기간을 골랐으면 그 기간, 전체 기간이면 '마지막 수집일'을 새 기간으로 본다."""
+def briefing_window(ds, f, days=7):
+    """비교 기준: 기간을 골랐으면 그 기간, 전체 기간이면 '최근 7일'(마지막 수집일까지)을 새 기간으로 본다."""
     if f.full_period:
         last = ds.sessions.loc[ds.sessions['source'].isin(f.sources), 'start'].max().date()
-        return D.Filters(f.sources, f.protocols, last, last, False), f'마지막 수집일({last:%m-%d})'
-    return f, '선택 기간'
+        first = max(D.data_range(ds)[0], last - pd.Timedelta(days=days - 1).to_pytimedelta())
+        return D.Filters(f.sources, f.protocols, first, last, False), f'최근 {days}일({first:%m-%d}~{last:%m-%d})'
+    return f, f'선택 기간({f.start:%m-%d}~{f.end:%m-%d})'
+
+
+def threat_level(br, sc_window, rules):
+    """상황 등급: 위험(빨강) / 주의(노랑) / 안정(초록)과 그 이유."""
+    h = sc_window.hits
+    s01 = int(h[h['rule_id'].isin(['S01', 'S02'])][['source', 'session_id']].drop_duplicates().shape[0])
+    high = int(h[h['rule_id'].isin(D.PRIORITY_RULES)][['source', 'session_id']].drop_duplicates().shape[0])
+    reasons = []
+    if len(br['new_servers']):
+        reasons.append(f"새 다운로드 서버 {len(br['new_servers'])}개")
+    if s01:
+        reasons.append(f'내려받아 실행 {s01}세션')
+    if len(br['new_hashes']):
+        reasons.append(f"새 파일 해시 {len(br['new_hashes'])}개")
+    if reasons:
+        return '위험', '#fb7185', reasons, s01, high
+    if high or len(br['new_danger_ips']):
+        return '주의', '#fbbf24', [f'위험도 높음 행동 {high}세션'] + (
+            [f"새 위험 IP {len(br['new_danger_ips'])}개"] if len(br['new_danger_ips']) else []), s01, high
+    return '안정', '#34d399', ['위험도 높음 행동이 관측되지 않음'], s01, high
 
 
 def briefing(ds, rules, f):
@@ -217,9 +258,11 @@ def briefing(ds, rules, f):
     k_now = D.kpis(sc)
     prev = D.compare(ds, wf)
     change = D.change(k_now['sessions'], prev['sessions']) if prev else None
-    return {'label': label, 'window': wf, 'new_hashes': sorted(new_hash), 'new_servers': new_servers,
+    out = {'label': label, 'window': wf, 'new_hashes': sorted(new_hash), 'new_servers': new_servers,
             'new_danger_ips': new_danger_ips, 'new_rules': [(r, names.get(r, r)) for r in sorted(seen_rules)],
             'sessions': k_now['sessions'], 'change': change}
+    out['level'], out['color'], out['reasons'], out['s01'], out['high'] = threat_level(out, sc, rules)
+    return out
 
 
 # ---------------------------------------------------------------- 허니팟 상태
@@ -236,6 +279,7 @@ def health_daily(sc):
     bail = ok.groupby('day').apply(lambda x: (x['n_commands'] == 0).mean() * 100, include_groups=False)
     g['bail'] = g['day'].map(bail).fillna(0.0)
     g['cmd_per_login'] = (g['cmd'] / g['logins'].where(g['logins'] > 0)).fillna(0.0)
+    g['reliable'] = g['logins'] >= 30   # 로그인 30건 미만인 날은 비율이 크게 흔들린다
     return g
 
 

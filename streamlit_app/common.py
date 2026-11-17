@@ -129,7 +129,7 @@ div[data-testid="stVerticalBlockBorderWrapper"] {background: #0f1317; border-col
 .hp-chip {border: 1px solid; border-radius: 999px; padding: .12rem .6rem; font-size: .76rem; color: #4b5563;}
 .hp-chip.on {font-weight: 700; background: rgba(255,255,255,.03);}
 .hp-danger {margin-top: .5rem; color: #fb7185; font-weight: 700; font-size: .85rem;}
-.hp-flow {max-height: 620px; overflow-y: auto; padding-right: .4rem;}
+.hp-flow {padding-right: .4rem;}
 .hp-flow-row {display: grid; grid-template-columns: 4.6rem 1.2rem 1fr; gap: .2rem; padding: .15rem 0;}
 .hp-flow-row .t {color: #7d8590; font-size: .74rem; padding-top: .25rem; font-variant-numeric: tabular-nums;}
 .hp-flow-row .rail {position: relative; display: flex; justify-content: center;}
@@ -151,6 +151,20 @@ div[data-testid="stVerticalBlockBorderWrapper"] {background: #0f1317; border-col
                       border-radius: 4px; color: #8b949e; font-size: .72rem; white-space: pre-wrap; word-break: break-all;
                       max-height: 6.5rem; overflow: hidden;}
 .hp-flow-more {color: #7d8590; font-size: .78rem; padding: .4rem 0;}
+.hp-banner {display: flex; gap: 1rem; align-items: center; border: 1px solid; border-left-width: 6px; border-radius: 8px;
+            padding: .7rem 1rem; background: #0f1317; margin: .3rem 0 .4rem 0;}
+.hp-banner .lvl {color: #0b0d10; font-weight: 900; font-size: 1.05rem; padding: .35rem .9rem; border-radius: 6px;
+                 white-space: nowrap;}
+.hp-banner .t1 {color: #f3f4f6; font-weight: 700; font-size: 1rem;}
+.hp-banner .t2 {color: #9aa3ad; font-size: .82rem; margin-top: .1rem;}
+.hp-todo .row, .hp-new .row {display: flex; gap: .7rem; align-items: flex-start; padding: .38rem 0;
+                             border-bottom: 1px solid #161b21;}
+.hp-todo .row:last-child, .hp-new .row:last-child {border-bottom: none;}
+.hp-todo .bar {width: 4px; align-self: stretch; border-radius: 2px; flex: none;}
+.hp-todo .a, .hp-new .a {color: #f3f4f6; font-weight: 700; font-size: .9rem;}
+.hp-todo .b, .hp-new .b {color: #7d8590; font-size: .76rem;}
+.hp-new .n {font-size: 1.5rem; font-weight: 800; min-width: 2.6rem; text-align: right; line-height: 1.2;
+            font-variant-numeric: tabular-nums;}
 </style>
 """
 

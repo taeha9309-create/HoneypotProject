@@ -267,10 +267,21 @@ class DashboardBuildAndDataTests(unittest.TestCase):
     def test_briefing_new_items(self):
         import intel as I
         br = I.briefing(self.ds, self.rules, self.f(date(2026, 11, 1), date(2026, 11, 1)))
-        self.assertEqual(br['label'], '선택 기간')
+        self.assertEqual(br['label'], '선택 기간(11-01~11-01)')
+        self.assertEqual(br['level'], '위험')  # 새 서버·새 해시·내려받아 실행
         self.assertIn('ab' * 32, br['new_hashes'])                  # 11-01에 처음 받아진 파일
         self.assertEqual(list(br['new_servers']['host']), ['45.90.1.2'])
         self.assertNotIn('B01', [r for r, _ in br['new_rules']])     # B01은 10-31 시드니에서 이미 관측
+
+    def test_consistency_rules(self):
+        import detect as X
+        import intel as I
+        # 우선 확인 = 위험도 높음 (Overview와 탐지 분석이 같은 숫자를 낸다)
+        self.assertEqual(set(D.PRIORITY_RULES), {r for r, v in X.DANGER.items() if v == 3})
+        sc = D.scope(self.ds, self.f())
+        bl = I.blocklist(I.ip_intel(self.ds, sc, self.rules))
+        self.assertEqual(bl.set_index('src_ip').loc['5.6.7.8', 'tier'], 1)  # 내려받아 실행 → 1순위
+        self.assertEqual(I.briefing_window(self.ds, self.f(full=True))[1], '최근 7일(10-31~11-02)')
 
     def test_display_helpers(self):
         self.assertEqual(D.defang('a\x00 HTTPS://1.2.3.4/x'), 'a\\x00 hxxps://1.2.x.x/x')

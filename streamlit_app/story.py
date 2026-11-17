@@ -213,7 +213,7 @@ def chips_html(seen, danger):
     return html
 
 
-def flow_html(groups, limit=150):
+def flow_html(groups, limit=40):
     """세로 타임라인. 공격자 입력(원문)은 escape해서 고정폭 회색 글씨로만 넣는다."""
     from html import escape
     rows = []

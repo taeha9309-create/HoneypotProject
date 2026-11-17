@@ -33,10 +33,11 @@ KST = 'Asia/Seoul'
 DEFAULT_DIR = ROOT / 'data/dashboard'
 SOURCE_NAMES = {'seoul': '서울', 'syd': '시드니'}
 
-# 우선 확인 행동 (기획서 4절). 쉬운 이름은 화면용.
+# 우선 확인 행동 = 위험도 '높음' 규칙 (detect.DANGER와 같은 집합, 테스트로 확인). 쉬운 이름은 화면용.
 PRIORITY_RULES = {
     'S01': '다운로드 후 실행', 'S02': '디코딩 후 실행', 'B04': 'SSH 키 심기',
     'B05': '예약 작업 등록', 'B07': '로그 삭제', 'B06': '명령 기록 끄기', 'B15': '방화벽 해제',
+    'B12': '다른 악성코드 종료', 'B13': '채굴 흔적',
 }
 # 규칙에 안 걸린 입력의 표시용 설명 (session_triage.review_unclassified의 후보 사유)
 REVIEW_LABELS = {
@@ -171,6 +172,11 @@ def load(data_dir, rules):
     if frames['files_extra']:
         files = pd.concat([files] + frames['files_extra'], ignore_index=True)
 
+    # Telnet 봇은 로그인 프롬프트에 'enable\\x00'처럼 NUL 표기 문자를 붙여 보낸다. 계정 집계가 갈라지지 않게 지운다.
+    for df_ in (logins, sessions):
+        for col in ('username', 'password'):
+            if col in df_:
+                df_[col] = df_[col].astype('string').str.replace('\\x00', '', regex=False).str.replace('\x00', '', regex=False)
     sessions['start'] = _kst(sessions['start_ts'])
     sessions['n_commands'] = sessions['n_commands'].fillna(0).astype(int)
     sessions['login_success'] = sessions['login_success'].fillna(0).astype(int)

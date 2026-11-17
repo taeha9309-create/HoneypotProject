@@ -151,8 +151,7 @@ def show_ip(ip):
                                  '허니팟': s['source'].map(lambda x: D.SOURCE_NAMES.get(x, x)),
                                  '프로토콜': s['protocol'], '로그인': s['login_success'].map({1: '성공', 0: '-'}),
                                  '명령 수': s['n_commands'], '세션 ID': s['session_id']})
-            ev = st.dataframe(view, hide_index=True, width='stretch', height=360, on_select='rerun',
-                              selection_mode='single-row', key=f'ip_sessions_{ip}')
+            ev = C.compact(view, f'ip_sessions_{ip}', 12, on_select='rerun')
             if ev.selection.rows:
                 r = s.iloc[ev.selection.rows[0]]
                 goto('세션', source=r['source'], session=r['session_id'])
@@ -174,7 +173,7 @@ def show_ip(ip):
                 pairs = (lg['username'].fillna('') + ' / ' + lg['password'].fillna('')).map(lambda v: D.defang(v, 50, False))
                 g = pd.DataFrame({'계정': pairs, '성공': lg['success']}).groupby('계정').agg(
                     시도=('성공', 'size'), 성공=('성공', 'sum')).sort_values('시도', ascending=False).reset_index()
-                st.dataframe(g.head(15), hide_index=True, width='stretch')
+                C.compact(g, f'ip_accounts_{ip}', 10)
 
 
 # ---------------------------------------------------------------- 탭: 세션
@@ -198,9 +197,9 @@ if tab == '세션':
             target = {'source': hit['source'].iloc[0], 'session': sid_q.strip()}
     lst = D.session_list(sc, rules, ip_q, pr_only, cmd_only, tuple(picked_rules),
                          None if login_opt == '전체' else login_opt == '성공')
-    with C.card(f'세션 목록 · {len(lst):,}개' + (' (최근 500개 표시)' if len(lst) > 500 else ''),
-                help='행을 클릭하면 아래에 상세를 엽니다.'):
-        shown = lst.head(500)
+    with C.card(f'세션 목록 · {len(lst):,}개', help='최신순. 행을 클릭하면 아래에 상세를 엽니다.'):
+        n_show = st.session_state.get('s_list_n', 12)
+        shown = lst.head(n_show)
         view = pd.DataFrame({'시작 (KST)': shown['start'].dt.strftime('%m-%d %H:%M:%S'),
                              '허니팟': shown['source'].map(lambda x: D.SOURCE_NAMES.get(x, x)),
                              '프로토콜': shown['protocol'], 'IP': shown['ip_masked'],
@@ -212,8 +211,11 @@ if tab == '세션':
                   .map(lambda v: f'color: {C.VIOLET}', subset=['IP'])
                   .map(lambda v: f'color: {C.RED}; font-weight: 600' if v else '', subset=['우선 확인'])
                   .map(lambda v: f'color: {C.CYAN}', subset=['탐지 규칙']))
-        ev = st.dataframe(styled, hide_index=True, width='stretch', height=360, on_select='rerun',
+        ev = st.dataframe(styled, hide_index=True, width='stretch', height='content', on_select='rerun',
                           selection_mode='single-row', key='s_list')
+        if len(lst) > n_show and st.button(f'더 보기 · {len(lst) - n_show:,}개', key='s_list_more', type='tertiary'):
+            st.session_state['s_list_n'] = n_show + 24
+            st.rerun()
         if ev.selection.rows:
             r = shown.iloc[ev.selection.rows[0]]
             target = {'source': r['source'], 'session': r['session_id']}
@@ -234,7 +236,7 @@ elif tab == 'IP':
     if sort_by.startswith('인증'):
         ips = ips.sort_values(['attempts', 'passwords'], ascending=False, na_position='last').reset_index(drop=True)
     with C.card(f'IP 목록 · {len(ips):,}개', help='조회 범위 안의 세션 수 순서. 행을 클릭하면 아래에 IP 상세를 엽니다.'):
-        shown = ips.head(500)
+        shown = ips
         view = pd.DataFrame({'IP': shown['src_ip'].map(D.mask_ip),
                              '국가': shown['country'].map(lambda x: names.get(x, x) if isinstance(x, str) else '위치 미상'),
                              '세션': shown['sessions'], '활동일': shown['days'], '허니팟': shown['sources'],
@@ -243,10 +245,9 @@ elif tab == 'IP':
                              '첫 성공까지': shown['tries_before_success'].map(lambda v: '' if pd.isna(v) else f'{int(v)}회'),
                              '로그인 성공': shown['logins'], '명령 수': shown['commands'],
                              '처음': shown['first'].dt.strftime('%m-%d %H:%M'), '마지막': shown['last'].dt.strftime('%m-%d %H:%M')})
-        ev = st.dataframe(view, hide_index=True, width='stretch', height=330, on_select='rerun',
-                          selection_mode='single-row', key='i_list',
-                          column_config={'세션': st.column_config.ProgressColumn(
-                              '세션', format='%d', min_value=0, max_value=int(shown['sessions'].max() or 1))})
+        ev = C.compact(view, 'i_list', 12, on_select='rerun',
+                       column_config={'세션': st.column_config.ProgressColumn(
+                           '세션', format='%d', min_value=0, max_value=int(shown['sessions'].max() or 1))})
         if ev.selection.rows:
             target = {'ip': shown.iloc[ev.selection.rows[0]]['src_ip']}
             st.session_state['detail'] = target
@@ -280,8 +281,7 @@ else:
                                      '처음': cat['first'].dt.strftime('%m-%d %H:%M'),
                                      '최근': cat['last'].dt.strftime('%m-%d %H:%M'),
                                      'SHA-256': cat['shasum'].map(D.short_hash), '실물 보관': '미확인'})
-                ev = st.dataframe(view, hide_index=True, width='stretch', height=380, on_select='rerun',
-                                  selection_mode='single-row', key='f_list')
+                ev = C.compact(view, 'f_list', 12, on_select='rerun')
                 picked = cat.iloc[ev.selection.rows[0]] if ev.selection.rows else None
     with right:
         with C.card('파일 관측 기록', help='고른 파일이 관측된 세션입니다. 행을 클릭하면 세션 상세로 이동합니다.'):
@@ -294,8 +294,7 @@ else:
                 obs = D.file_observations(sc, picked['key'])
                 v = pd.DataFrame({'시각': obs['time'].dt.strftime('%m-%d %H:%M'), '종류': obs['kind'].map(D.FILE_KINDS),
                                   'IP': obs['src_ip'].map(D.mask_ip), '세션 ID': obs['session_id']})
-                ev2 = st.dataframe(v, hide_index=True, width='stretch', height=250, on_select='rerun',
-                                   selection_mode='single-row', key='f_obs')
+                ev2 = C.compact(v, f"f_obs_{picked['key'][:12]}", 8, on_select='rerun')
                 if ev2.selection.rows:
                     r = obs.iloc[ev2.selection.rows[0]]
                     goto('세션', source=r['source'], session=r['session_id'])
@@ -306,9 +305,8 @@ else:
         else:
             v = pd.DataFrame({'시각': fails['time'].dt.strftime('%m-%d %H:%M:%S'), 'IP': fails['src_ip'].map(D.mask_ip),
                               'URL': fails['url'].map(lambda u: D.defang(u)), '오류': fails['error'].map(lambda e: D.defang(e, 80))})
-            ev3 = st.dataframe(v, hide_index=True, width='stretch', height=300, on_select='rerun',
-                               selection_mode='single-row', key='f_fail',
-                               column_config={'URL': st.column_config.TextColumn(width='large')})
+            ev3 = C.compact(v, 'f_fail', 8, on_select='rerun',
+                            column_config={'URL': st.column_config.TextColumn(width='large')})
             if ev3.selection.rows:
                 r = fails.iloc[ev3.selection.rows[0]]
                 goto('세션', source=r['source'], session=r['session_id'])

@@ -47,7 +47,8 @@ country = lambda c: names.get(c, c) if isinstance(c, str) else '위치 미상'  
 with C.card('THREAT INTEL SUMMARY', help='차단 후보 IP: 내려받아 실행·위험 행동·다운로드 시도·무차별 대입(인증 '
                                          f'{I.BRUTE_ATTEMPTS}회 이상)·반복 접속(3일 이상, 20세션 이상) 중 하나 이상인 공인 IP.'):
     cols = st.columns(5)
-    kp = [('차단 후보 IP', f'{len(bl):,}', C.RED, f'전체 IP {len(ipi):,}개 중'),
+    kp = [('1순위 차단 IP', f"{int((bl['tier'] == 1).sum()):,}", C.RED,
+           f"2순위 {int((bl['tier'] == 2).sum()):,} · 3순위 {int((bl['tier'] == 3).sum()):,} · 전체 IP {len(ipi):,}"),
           ('다운로드 서버', f'{len(pub_servers):,}', C.ORANGE, f"성공한 다운로드 {int(pub_servers['ok'].sum()):,}건"),
           ('파일 해시', f'{len(files):,}', C.LIME, '받아진·올라온 파일'),
           ('공격 계정 조합', f'{len(creds):,}' if sc.raw_selected else '미수집', C.PINK,
@@ -67,13 +68,18 @@ tab = st.segmented_control('IOC', ['차단 후보 IP', '다운로드 서버', '�
                            default='차단 후보 IP', key='i_tab', label_visibility='collapsed') or '차단 후보 IP'
 
 if tab == '차단 후보 IP':
-    with C.card(f'차단 후보 IP · {len(bl):,}개', help='점수 순(이유 개수·위험도·세션·인증 시도). 행을 누르면 세션 조사의 IP 상세로 '
-                                                    '이동합니다. "신규"는 조회 시작 전에 본 적 없는 IP입니다.'):
+    with C.card(f'차단 후보 IP · {len(bl):,}개', help='우선순위 → 점수 순(이유 개수·위험도·세션·인증 시도). 행을 누르면 세션 조사의 '
+                                                    'IP 상세로 이동합니다. "신규"는 조회 시작 전에 본 적 없는 IP입니다. CSV는 지금 거른 목록입니다.'):
+        st.caption(I.TIER_HELP)
+        tiers = st.segmented_control('우선순위', [1, 2, 3], default=[1], selection_mode='multi', key='i_tiers',
+                                     format_func=lambda t: I.TIER_NAMES[t]) or [1, 2, 3]
         reasons = sorted({r for rs in bl['reasons'] for r in rs})
         pick = st.multiselect('이유로 거르기', reasons, key='i_reason', placeholder='전체')
-        view_src = bl[bl['reasons'].map(lambda rs: bool(set(pick) & set(rs)))] if pick else bl
+        view_src = bl[bl['tier'].isin(tiers)]
+        view_src = view_src[view_src['reasons'].map(lambda rs: bool(set(pick) & set(rs)))] if pick else view_src
         view_src = view_src.reset_index(drop=True)
-        view = pd.DataFrame({'IP': view_src['src_ip'], '국가': view_src['country'].map(country),
+        view = pd.DataFrame({'우선순위': view_src['tier'].map(lambda t: f'{t}순위'),
+                             'IP': view_src['src_ip'], '국가': view_src['country'].map(country),
                              '이유': view_src['reasons'].map(lambda r: ', '.join(r)),
                              '위험': view_src['danger'].map(lambda d: X.DANGER_NAMES.get(d, '-')),
                              '세션': view_src['sessions'], '인증 시도': view_src['attempts'],
@@ -83,7 +89,8 @@ if tab == '차단 후보 IP':
         ev = C.compact(view, 'i_bl', 15, on_select='rerun',
                        column_config={'이유': st.column_config.TextColumn(width='medium')})
         st.download_button('차단 후보 IP CSV 내려받기', I.to_csv(view_src.assign(reasons=view_src['reasons'].map('|'.join))[
-            ['src_ip', 'country', 'reasons', 'danger', 'sessions', 'attempts', 'passwords', 'days', 'sources', 'first', 'last']]),
+            ['tier', 'src_ip', 'country', 'reasons', 'danger', 'sessions', 'attempts', 'passwords', 'days', 'sources',
+             'first', 'last']]),
             file_name=f'blocklist_{f.start:%Y%m%d}_{f.end:%Y%m%d}.csv', mime='text/csv')
         if ev.selection.rows:
             C.open_detail(ip=view_src.iloc[ev.selection.rows[0]]['src_ip'])

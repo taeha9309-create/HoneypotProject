@@ -55,7 +55,8 @@ if pop == 0:
     st.stop()
 table = X.danger_table(sc, rules)
 behavior_ids = set(table['rule_id'])
-detected = int(sc.hits[sc.hits['rule_id'].isin(behavior_ids)][['source', 'session_id']].drop_duplicates().shape[0])
+detected = int(sc.hits[sc.hits['rule_id'].isin(behavior_ids - {'B19'})][['source', 'session_id']]
+                .drop_duplicates().shape[0])  # 거의 모든 봇에 걸리는 B19(셸 진입)는 빼고 센다
 high_ids = set(table.loc[table['danger'] == 3, 'rule_id'])
 high_sessions = int(sc.hits[sc.hits['rule_id'].isin(high_ids)][['source', 'session_id']].drop_duplicates().shape[0])
 full = int(fn.loc[fn['level'] == 4, 'sessions'].iloc[0])
@@ -64,7 +65,7 @@ full = int(fn.loc[fn['level'] == 4, 'sessions'].iloc[0])
 with C.card('DETECTION SUMMARY', help='분모는 조회 범위에서 명령을 입력한 세션입니다. ' + X.DANGER_HELP):
     cols = st.columns(5)
     kp = [('명령 입력 세션', f'{pop:,}', C.CYAN, ''),
-          ('규칙 탐지 세션', f'{detected:,}', C.LIME, f'{detected / pop * 100:.0f}%'),
+          ('의미 있는 탐지 세션', f'{detected:,}', C.LIME, f'{detected / pop * 100:.0f}% · 셸 진입(B19)만 걸린 세션 제외'),
           ('위험도 높음 세션', f'{high_sessions:,}', C.RED, f'{high_sessions / pop * 100:.1f}%'),
           ('끝까지 실행 (S01·S02)', f'{full:,}', C.ORANGE, f'{full / pop * 100:.1f}%'),
           ('초기 단계에서 멈춤', f'{stopped_early / pop * 100:.0f}%', '#9aa3ad', f'{stopped_early:,}개 · 셸 진입·정보 수집까지')]
