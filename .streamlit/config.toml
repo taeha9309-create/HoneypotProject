@@ -1,0 +1,11 @@
+# 대시보드 테마 (어두운 관제 화면). 저장소 루트에서 streamlit run 할 때 적용된다.
+[theme]
+base = "dark"
+primaryColor = "#22d3ee"
+backgroundColor = "#090b0e"
+secondaryBackgroundColor = "#12161b"
+textColor = "#e6e8eb"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

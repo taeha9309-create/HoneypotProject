@@ -1,0 +1,293 @@
+"""두 페이지가 같이 쓰는 설정, 데이터 적재, 표시 도우미."""
+import argparse
+from html import escape
+import json
+import math
+import os
+from pathlib import Path
+import sys
+
+import altair as alt
+import streamlit as st
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+for p in (str(ROOT), str(HERE)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+import data as D  # noqa: E402
+from match_signatures import load_rules  # noqa: E402
+
+WORLD = ROOT / 'dashboard/assets/world.json'  # handoff 브랜치의 Natural Earth 국가 경계 (Korean names 포함)
+
+# 어두운 관제 화면 팔레트 (템플릿: 검정 배경 + 시안/파랑 막대 + 핑크 강조).
+# 같은 대상은 모든 차트에서 같은 색을 쓴다.
+CYAN = '#22d3ee'
+BLUE = '#2f8fe0'
+PINK = '#f472b6'
+VIOLET = '#c084fc'
+LIME = '#bef264'
+AMBER = '#fbbf24'
+RED = '#fb7185'
+GRID = '#20252c'
+AXIS = '#7d8590'
+INK = '#e6e8eb'
+SURFACE = '#0f1317'
+ORANGE = '#fb923c'
+PROTOCOL_COLORS = {'ssh': CYAN, 'telnet': ORANGE}
+GREEN = '#34d399'
+SOURCE_COLORS = {'서울': GREEN, '시드니': VIOLET}
+BAR = CYAN
+ALERT = RED
+MUTED = '#4b5563'
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument('--data', default=os.environ.get('HONEYPOT_DASHBOARD_DATA', str(D.DEFAULT_DIR)))
+    p.add_argument('--rules', default=str(ROOT / 'signatures/rules.yaml'))
+    a, _ = p.parse_known_args(sys.argv[1:])
+    return Path(a.data).resolve(), Path(a.rules).resolve()
+
+
+DATA_DIR, RULES_PATH = parse_args()
+
+
+def _version():
+    files = [DATA_DIR / 'dashboard.db', DATA_DIR / 'seoul.db', DATA_DIR / 'syd.db', RULES_PATH]
+    return tuple(f.stat().st_mtime_ns if f.exists() else 0 for f in files)
+
+
+@st.cache_resource(show_spinner='데이터 불러오는 중…')
+def _dataset(data_dir, rules_path, version):
+    return D.load(data_dir, load_rules(rules_path))
+
+
+def dataset():
+    return _dataset(str(DATA_DIR), str(RULES_PATH), _version())
+
+
+@st.cache_resource
+def world():
+    """[{code, name, lon, lat, path}] path는 x=(lon+180)*2, y=(90-lat)*2 좌표계(720x360)의 SVG 경로."""
+    if not WORLD.exists():
+        return []
+    return json.loads(WORLD.read_text(encoding='utf-8'))
+
+
+def country_names():
+    names = {c['code']: c['name'] for c in world() if c['code'] and c['code'] != '-99'}
+    names['??'] = '위치 미상'
+    return names
+
+
+def filters():
+    return st.session_state['filters']
+
+
+def open_detail(**kw):
+    """세션·IP 상세 화면으로 이동. kw: ip=... 또는 source=..., session=..."""
+    st.session_state['detail'] = kw
+    st.session_state['_goto_tab'] = 'IP' if 'ip' in kw else '세션'
+    st.switch_page(st.session_state['pages']['detail'])
+
+
+# ---------------------------------------------------------------- 표시 도우미
+
+CSS = """
+<style>
+.block-container {padding-top: 2.2rem; max-width: 1500px;}
+h1, h2, h3 {letter-spacing: .02em;}
+.hp-head {font-size: 1.55rem; font-weight: 800; letter-spacing: .04em; color: #f3f4f6; text-transform: uppercase;}
+.hp-head span {color: #7d8590; font-weight: 700;}
+.hp-sub {color: #7d8590; font-size: .82rem; margin-top: .15rem;}
+.hp-title {color: #9aa3ad; font-size: .74rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+           margin: -.2rem 0 .3rem 0;}
+div[data-testid="stVerticalBlockBorderWrapper"] {background: #0f1317; border-color: #1c2128 !important;}
+.hp-kpi {padding: .1rem .2rem .2rem .2rem;}
+.hp-kpi .lab {font-size: .8rem; font-weight: 600; padding-bottom: .35rem; border-bottom: 1px solid #2a3038;}
+.hp-kpi .lab {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.hp-kpi .val {font-size: clamp(1.25rem, 2.1vw, 2.05rem); font-weight: 800; line-height: 1.15; margin-top: .45rem;
+              font-variant-numeric: tabular-nums; white-space: nowrap;}
+.hp-share {margin-top: .5rem; padding-top: .6rem; border-top: 1px dashed #2a3038;}
+.hp-share .ttl {color: #9aa3ad; font-size: .72rem; font-weight: 700; letter-spacing: .06em; margin-bottom: .35rem;}
+.hp-share .bar {display: flex; height: 22px; border-radius: 4px; overflow: hidden; background: #1a1f26;}
+.hp-share .seg {display: flex; align-items: center; justify-content: center; color: #0b0d10; font-size: .72rem;
+                font-weight: 800; white-space: nowrap; overflow: hidden; border-right: 2px solid #0f1317;}
+.hp-share .seg:last-child {border-right: none;}
+.hp-share .lg {display: flex; flex-wrap: wrap; gap: .15rem .9rem; font-size: .74rem; color: #cbd2d9; margin-top: .4rem;}
+.hp-share .nt {color: #7d8590; font-size: .7rem; margin-top: .2rem;}
+.hp-kpi .sub {color: #7d8590; font-size: .74rem; margin-top: .15rem; min-height: 1.1rem;}
+.hp-kpi .up {color: #fb7185;} .hp-kpi .down {color: #34d399;}
+.hp-status {display: flex; gap: 1.6rem; flex-wrap: wrap; color: #7d8590; font-size: .76rem; margin: .4rem 0 .6rem 0;}
+.hp-status b {color: #cbd2d9;} .hp-dot {display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.35rem;}
+.hp-story {font-size: 1.02rem; line-height: 1.7; color: #e6e8eb; margin: .2rem 0 .6rem 0;}
+.hp-story code {background: #1a1f26; color: #f472b6; padding: .05rem .35rem; border-radius: 4px;}
+.hp-chips {display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: .3rem 0 .2rem 0;}
+.hp-chips .arrow {color: #3b434d; font-weight: 800;}
+.hp-chip {border: 1px solid; border-radius: 999px; padding: .12rem .6rem; font-size: .76rem; color: #4b5563;}
+.hp-chip.on {font-weight: 700; background: rgba(255,255,255,.03);}
+.hp-danger {margin-top: .5rem; color: #fb7185; font-weight: 700; font-size: .85rem;}
+.hp-flow {max-height: 620px; overflow-y: auto; padding-right: .4rem;}
+.hp-flow-row {display: grid; grid-template-columns: 4.6rem 1.2rem 1fr; gap: .2rem; padding: .15rem 0;}
+.hp-flow-row .t {color: #7d8590; font-size: .74rem; padding-top: .25rem; font-variant-numeric: tabular-nums;}
+.hp-flow-row .rail {position: relative; display: flex; justify-content: center;}
+.hp-flow-row .rail::before {content: ''; position: absolute; top: 0; bottom: -0.3rem; width: 2px; background: #1f252c;}
+.hp-flow-row .dot {position: relative; width: .7rem; height: .7rem; border-radius: 50%; margin-top: .35rem;
+                   box-shadow: 0 0 0 3px #0f1317;}
+.hp-flow-row .body {padding-bottom: .55rem; border-bottom: 1px solid #161b21;}
+.hp-flow-row .head {display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap;}
+.hp-flow-row .step {font-size: .76rem; font-weight: 800; white-space: nowrap;}
+.hp-flow-row .what {font-size: .92rem; color: #f3f4f6; font-weight: 600;}
+.hp-flow-row .meta {font-size: .72rem; color: #7d8590; margin-top: .1rem;}
+.hp-flow-row .b {padding: 0 .35rem; border-radius: 4px; font-weight: 700;}
+.hp-flow-row .b.rule {color: #fb7185; background: rgba(251,113,133,.12);}
+.hp-flow-row .b.guess {color: #fbbf24; background: rgba(251,191,36,.12);}
+.hp-flow-row .b.none {color: #9aa3ad; background: rgba(154,163,173,.12);}
+.hp-flow-row .b.obs {color: #22d3ee; background: rgba(34,211,238,.12);}
+.hp-flow-row .b.fail {color: #f87171; background: rgba(248,113,113,.15);}
+.hp-flow-row .raw {font-family: ui-monospace, SFMono-Regular, Consolas, monospace; margin: .25rem 0 0 0; padding: .3rem .5rem; background: #0b0e12; border: 1px solid #1a1f26;
+                      border-radius: 4px; color: #8b949e; font-size: .72rem; white-space: pre-wrap; word-break: break-all;
+                      max-height: 6.5rem; overflow: hidden;}
+.hp-flow-more {color: #7d8590; font-size: .78rem; padding: .4rem 0;}
+</style>
+"""
+
+
+def inject_css():
+    st.markdown(CSS, unsafe_allow_html=True)  # 고정 문자열만. 공격자 데이터는 넣지 않는다.
+
+
+def _dark_theme():
+    return {'config': {
+        'background': 'transparent',
+        'view': {'stroke': None},
+        'font': 'sans-serif',
+        'axis': {'domainColor': GRID, 'gridColor': GRID, 'tickColor': GRID, 'labelColor': AXIS,
+                 'titleColor': AXIS, 'labelFontSize': 11, 'titleFontSize': 11, 'titleFontWeight': 'normal'},
+        'legend': {'labelColor': '#cbd2d9', 'titleColor': AXIS, 'labelFontSize': 11, 'symbolType': 'circle'},
+        'text': {'color': '#cbd2d9'},
+        'title': {'color': INK},
+    }}
+
+
+try:
+    alt.theme.register('honeypot_dark', enable=True)(_dark_theme)
+except AttributeError:  # altair < 5.5
+    alt.themes.register('honeypot_dark', _dark_theme)
+    alt.themes.enable('honeypot_dark')
+
+
+def chart(c, **kw):
+    """Streamlit 기본 테마 대신 위 어두운 테마로 그린다."""
+    st.altair_chart(c, width='stretch', theme=None, **kw)
+
+
+BASIS_COLORS = {'규칙 일치': RED, '입력 기반 추정': AMBER, '근거 부족': '#7d8590'}
+
+
+def style_commands(df):
+    """최근 명령 표 색: 시각·프로토콜·근거별로 구분해 흰 글자만 있는 표보다 읽기 쉽게 한다."""
+    def basis_color(v):
+        return f"color: {BASIS_COLORS.get(v, INK)}; font-weight: 600"
+
+    def row_behavior(row):
+        color = BASIS_COLORS.get(row['근거'], INK)
+        return [f'color: {color}' if c == '행동 설명' else '' for c in row.index]
+
+    styler = df.style.apply(row_behavior, axis=1) if {'근거', '행동 설명'} <= set(df.columns) else df.style
+    rules = [('시각', lambda v: f'color: {AXIS}'), ('IP', lambda v: f'color: {VIOLET}'),
+             ('프로토콜', lambda v: f"color: {PROTOCOL_COLORS.get(v, INK)}; font-weight: 600"),
+             ('명령', lambda v: 'color: #f3f4f6'), ('근거', basis_color),
+             ('탐지 규칙', lambda v: f'color: {CYAN}; font-weight: 600')]
+    for col, fn in rules:
+        if col in df.columns:
+            styler = styler.map(fn, subset=[col])
+    return styler
+
+
+def share_bar(title, segments, note=None):
+    """제목이 붙은 한 줄짜리 100% 막대 (HTML). segments: [(짧은 이름, 퍼센트, 색, 자세한 설명)].
+    막대 칸 안에 '이름 퍼센트'를 쓰고(칸이 좁으면 생략), 아래에 색 범례와 자세한 값을 쓴다.
+    문자열은 대시보드가 만든 값(출처 이름, 가린 IP, 숫자)이며 모두 escape한다."""
+    cells, legend = [], []
+    for name, pct, color, detail in segments:
+        if pct <= 0:
+            continue
+        inside = f'{escape(name)} {pct:.0f}%' if pct >= 14 else (f'{pct:.0f}%' if pct >= 6 else '')
+        cells.append(f'<div class="seg" style="width:{pct:.2f}%;background:{color}" title="{escape(detail)}">{inside}</div>')
+        legend.append(f'<span><span class="hp-dot" style="background:{color}"></span>{escape(detail)}</span>')
+    html = (f'<div class="hp-share"><div class="ttl">{escape(title)}</div><div class="bar">{"".join(cells)}</div>'
+            f'<div class="lg">{"".join(legend)}</div>'
+            + (f'<div class="nt">{escape(note)}</div>' if note else '') + '</div>')
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def page_header(title, scope_text, sub=None):
+    st.markdown(f'<div class="hp-head">{escape(title)}: <span>{escape(scope_text)}</span></div>',
+                unsafe_allow_html=True)
+    if sub:
+        st.markdown(f'<div class="hp-sub">{escape(sub)}</div>', unsafe_allow_html=True)
+
+
+def card(title, help=None, height=None):
+    """테두리 카드. 같은 줄의 카드는 같은 height를 줘서 높이를 맞춘다(넘치면 카드 안에서 스크롤)."""
+    box = st.container(border=True, height=height or 'content')
+    box.markdown(f'<div class="hp-title">{escape(title)}</div>', unsafe_allow_html=True, help=help)
+    return box
+
+
+def kpi(label, value, color, sub='', delta=None, bad_up=True):
+    """템플릿식 KPI: 색 있는 라벨 + 밑줄 + 큰 숫자. 값은 모두 대시보드가 계산한 숫자·고정 문구다."""
+    d = ''
+    if delta is not None:
+        cls = ('up' if delta > 0 else 'down') if bad_up else ('down' if delta > 0 else 'up')
+        d = f'<span class="{cls}">{"▲" if delta > 0 else "▼"} {abs(delta):.0f}%</span> '
+    st.markdown(f'<div class="hp-kpi"><div class="lab" style="color:{color}">{escape(label)}</div>'
+                f'<div class="val" style="color:{color}">{escape(value)}</div>'
+                f'<div class="sub">{d}{escape(sub)}</div></div>', unsafe_allow_html=True)
+
+
+def fmt_dt(ts, fmt='%m-%d %H:%M'):
+    return '-' if ts is None or (hasattr(ts, 'isna') and ts.isna()) or str(ts) == 'NaT' else ts.strftime(fmt)
+
+
+def hbar(df, y, x, tooltip, text=None, color=BAR, sort='-x', x_title=None, row=26, min_h=120):
+    top = float(df[x].max()) if len(df) else 1.0
+    base = alt.Chart(df).encode(
+        y=alt.Y(f'{y}:N', sort=sort, title=None, axis=alt.Axis(labelLimit=200, labelOverlap=False, domain=False, ticks=False)),
+        x=alt.X(f'{x}:Q', title=x_title, scale=alt.Scale(domain=[0, max(top, 1) * (1.4 if text else 1.05)], nice=False),
+                axis=alt.Axis(grid=True, domain=False, ticks=False)),
+        tooltip=tooltip)
+    c = base.mark_bar(color=color, cornerRadiusTopRight=3, cornerRadiusBottomRight=3, height={'band': 0.62})
+    if text:
+        c = c + base.mark_text(align='left', dx=5, fontSize=11, color='#cbd2d9').encode(text=text)
+    return c.properties(height=max(min_h, row * len(df)))
+
+
+def world_svg(counts, height=300):
+    """국가별 원 지도 (SVG). counts: {국가코드: 세션 수}. 국가 이름은 자체 자산에서 오고,
+    공격자 문자열은 넣지 않는다(숫자와 국가 이름만)."""
+    shapes = world()
+    if not shapes:
+        return '<p style="color:#7d8590">지도 자료(dashboard/assets/world.json)가 없습니다.</p>'
+    hot = {c: n for c, n in counts.items() if c != '??' and n > 0}
+    peak = max(hot.values(), default=1)
+    centers = {c['code']: (c['lon'], c['lat'], c['name']) for c in shapes if c['code'] != '-99'}
+    parts = [f'<body style="margin:0;background:{SURFACE}"><svg viewBox="0 12 720 300" '
+             f'style="width:100%;height:{height}px" role="img" aria-label="국가별 접속 세션 지도">']
+    for c in shapes:
+        fill = '#1d3446' if hot.get(c['code']) else '#1a1f26'
+        parts.append(f'<path d="{c["path"]}" fill="{fill}" stroke="{SURFACE}" stroke-width="0.5"/>')
+    for code, n in sorted(hot.items(), key=lambda kv: -kv[1]):
+        if code not in centers:
+            continue
+        lon, lat, name = centers[code]
+        x, y = (lon + 180) * 2, (90 - lat) * 2
+        r = 2.2 + 15 * math.sqrt(n / peak)
+        parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{PINK}" fill-opacity="0.35" '
+                     f'stroke="{PINK}" stroke-width="0.9"><title>{escape(name)}: {n:,}세션</title></circle>'
+                     f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.3" fill="#fde7f3"/>')
+    parts.append('</svg></body>')
+    return ''.join(parts)
