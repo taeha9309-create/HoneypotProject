@@ -98,6 +98,14 @@ def open_detail(**kw):
 CSS = """
 <style>
 .block-container {padding-top: 2.2rem; max-width: 1500px;}
+/* 같은 줄 카드 높이 맞추기: 열을 줄 높이만큼 늘리고, 열의 마지막 카드가 남은 높이를 채운다(안쪽 스크롤 없음) */
+[data-testid="stHorizontalBlock"] {align-items: stretch;}
+[data-testid="stColumn"] {display: flex; flex-direction: column;}
+[data-testid="stColumn"] > [data-testid="stVerticalBlock"] {flex: 1 1 auto;}
+[data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"]:last-child {
+    flex: 1 1 auto; display: flex; flex-direction: column;}
+[data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"]:last-child > [data-testid="stVerticalBlock"] {
+    flex: 1 1 auto;}
 h1, h2, h3 {letter-spacing: .02em;}
 .hp-head {font-size: 1.55rem; font-weight: 800; letter-spacing: .04em; color: #f3f4f6; text-transform: uppercase;}
 .hp-head span {color: #7d8590; font-weight: 700;}
