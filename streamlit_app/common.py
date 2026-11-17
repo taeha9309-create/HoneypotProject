@@ -251,6 +251,8 @@ header[data-testid="stHeader"] {background: transparent; height: 2.2rem;}
 
 def inject_css():
     st.markdown(CSS, unsafe_allow_html=True)  # 고정 문자열만. 공격자 데이터는 넣지 않는다.
+    st.markdown('<style>' + (HERE / 'ui-polish.css').read_text(encoding='utf-8') + '</style>',
+                unsafe_allow_html=True)
 
 
 def _dark_theme():
@@ -259,8 +261,8 @@ def _dark_theme():
         'view': {'stroke': None},
         'font': "'IBM Plex Sans KR', sans-serif",
         'axis': {'domainColor': GRID, 'gridColor': GRID, 'tickColor': GRID, 'labelColor': AXIS,
-                 'titleColor': AXIS, 'labelFontSize': 11, 'titleFontSize': 11, 'titleFontWeight': 'normal'},
-        'legend': {'labelColor': INK_2, 'titleColor': AXIS, 'labelFontSize': 11, 'symbolType': 'circle'},
+                 'titleColor': '#9eafc0', 'labelFontSize': 12, 'titleFontSize': 12, 'titleFontWeight': 'normal'},
+        'legend': {'labelColor': INK_2, 'titleColor': AXIS, 'labelFontSize': 12, 'symbolType': 'circle'},
         'text': {'color': INK_2},
         'title': {'color': INK},
     }}
