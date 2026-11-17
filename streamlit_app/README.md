@@ -1,7 +1,7 @@
 # 허니팟 공격 분석 대시보드 (Streamlit, MVP)
 
 서울·시드니 Cowrie 허니팟(SSH·Telnet) 로그를 모아 **"지금 상황 → 무엇을 해야 하나 → 근거"** 순서로 보여 주는 관리자용 대시보드다.
-기획: [docs/dashboard-plan-v2.ko.md](../docs/dashboard-plan-v2.ko.md). handoff 브랜치의 `dashboard/`(HTML 서버)와는 별개이며 그쪽의 지도 자산(`dashboard/assets/world.json`)만 쓴다.
+기획: [docs/dashboard-plan-v2.ko.md](../docs/dashboard-plan-v2.ko.md) · 시연: [docs/dashboard-demo-scenario.ko.md](../docs/dashboard-demo-scenario.ko.md). handoff 브랜치의 `dashboard/`(HTML 서버)와는 별개이며 그쪽의 지도 자산(`dashboard/assets/world.json`)만 쓴다.
 
 ## 화면 (5개)
 
