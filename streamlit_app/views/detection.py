@@ -99,6 +99,21 @@ with left:
                 y=alt.Y('sessions:Q', title=None, axis=alt.Axis(domain=False, ticks=False, format='~s', tickCount=3)),
                 tooltip=[alt.Tooltip('day:T', title='날짜', format='%m-%d'),
                          alt.Tooltip('sessions:Q', title='세션', format=',')]).properties(height=110))
+        # 최근 위험도 높음 세션 (옆 목록과 높이를 맞추면서 바로 조사할 대상을 보여 준다)
+        hh = sc.hits[sc.hits['rule_id'].isin(D.PRIORITY_RULES)].sort_values('time', ascending=False)
+        if not hh.empty:
+            acts = hh.groupby(['source', 'session_id'])['rule_id'].apply(
+                lambda ids: ', '.join(D.PRIORITY_RULES[i] for i in D.PRIORITY_RULES if i in set(ids)))
+            recent = (hh.drop_duplicates(['source', 'session_id']).head(6)
+                      .merge(sc.sessions[['source', 'session_id', 'ip_masked']], on=['source', 'session_id'], how='left'))
+            st.caption('최근 위험도 높음 세션 · 누르면 세션 조사')
+            rv = pd.DataFrame({'시각': recent['time'].dt.strftime('%m-%d %H:%M'), 'IP': recent['ip_masked'],
+                               '행동': [acts.get((s, i), '') for s, i in zip(recent['source'], recent['session_id'])]})
+            evr = st.dataframe(rv, hide_index=True, width='stretch', height='content', on_select='rerun',
+                               selection_mode='single-row', key='d_recent_high')
+            if evr.selection.rows:
+                r = recent.iloc[evr.selection.rows[0]]
+                C.open_detail(source=r['source'], session=r['session_id'])
 with right:
     with C.card('행동 목록 · 위험도 순', help=X.DANGER_HELP + ' 행을 누르면 아래에 상세가 열립니다.'):
         show_all = st.toggle('미관측 규칙 포함', value=False, key='d_all')
@@ -110,16 +125,17 @@ with right:
         styled = (view.style.map(lambda v: f"color: {danger_color.get(v, C.INK)}; font-weight: 800", subset=['위험'])
                   .map(lambda v: f'color: {C.CYAN}', subset=['규칙'])
                   .map(lambda v: f'color: {C.AXIS}', subset=['ATT&CK', '마지막']))
+        # 픽셀 너비를 주면 좁은 화면에서 글자 열이 찌그러져 비어 보인다 → 이름 너비(small/medium/large)만 쓴다
         ev = st.dataframe(styled, hide_index=True, width='stretch', height='content', on_select='rerun',
                           selection_mode='single-row', key='d_list',
-                          column_config={'위험': st.column_config.TextColumn(width=48),
-                                         '규칙': st.column_config.TextColumn(width=48),
+                          column_config={'위험': st.column_config.TextColumn(width='small'),
+                                         '규칙': st.column_config.TextColumn(width='small'),
                                          '행동': st.column_config.TextColumn(width='large'),
-                                         '세션': st.column_config.NumberColumn(format='%d', width=60),
+                                         '세션': st.column_config.NumberColumn(format='%d', width='small'),
                                          '비율': st.column_config.ProgressColumn(format='%.1f%%', min_value=0,
-                                                                               max_value=100, width=90),
-                                         'ATT&CK': st.column_config.TextColumn(width=80),
-                                         '마지막': st.column_config.TextColumn(width=90)})
+                                                                               max_value=100, width='small'),
+                                         'ATT&CK': st.column_config.TextColumn(width='small'),
+                                         '마지막': st.column_config.TextColumn(width='small')})
         picked = rows.iloc[ev.selection.rows[0]] if ev.selection.rows else None
 
 # ---------------------------------------------------------------- ③ 고른 행동 상세
@@ -147,8 +163,8 @@ if picked is not None:
             else:
                 compact(ex.rename(columns={'command': '명령', 'count': '횟수', 'sessions': '세션'}), f'd_ex_{rid}', 6,
                         column_config={'명령': st.column_config.TextColumn(width='large'),
-                                       '횟수': st.column_config.NumberColumn(width=50),
-                                       '세션': st.column_config.NumberColumn(width=50)})
+                                       '횟수': st.column_config.NumberColumn(width='small'),
+                                       '세션': st.column_config.NumberColumn(width='small')})
         with c:
             sess = X.rule_sessions(sc, rid)
             st.markdown(f'**세션** · {len(sess):,}개 · 누르면 세션 조사')
