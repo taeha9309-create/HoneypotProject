@@ -135,18 +135,8 @@ with C.card(f"{picked['label']} · {picked['name']}"):
         if cr.empty:
             st.caption('탐지 규칙에 걸린 행동이 없습니다.')
         else:
-            cr['label'] = cr['plain'].map(lambda t: t if len(t) <= 22 else t[:21] + '…')
-            cr['color'] = cr['danger'].map(X.DANGER_COLORS)
-            cr['text'] = cr['percent'].map(lambda v: f'{v:.0f}%')
-            base = alt.Chart(cr).encode(
-                y=alt.Y('label:N', sort=list(cr['label']), title=None, axis=alt.Axis(labelLimit=200, domain=False, ticks=False)),
-                x=alt.X('percent:Q', title=None, axis=None, scale=alt.Scale(domain=[0, 130])),
-                tooltip=[alt.Tooltip('plain:N', title='행동'), alt.Tooltip('rule_id:N', title='규칙'),
-                         alt.Tooltip('percent:Q', title='비율(%)', format='.0f')])
-            C.chart((base.mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3, height={'band': 0.6})
-                     .encode(color=alt.Color('color:N', scale=None))
-                     + base.mark_text(align='left', dx=4, fontSize=11, color='#cbd2d9').encode(text='text:N'))
-                    .properties(height=max(90, 26 * len(cr))))
+            C.bar_list([(r.plain, r.percent, f'{r.percent:.0f}%', X.DANGER_COLORS.get(r.danger, '#7d8590'))
+                        for r in cr.itertuples()])
         sv = P.cluster_servers(ds, sc, ml, proto, cid)
         if len(sv):
             st.markdown('**쓴 다운로드 서버**')

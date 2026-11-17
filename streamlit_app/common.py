@@ -115,6 +115,19 @@ header[data-testid="stHeader"] {background: transparent; height: 2.2rem;}
 .st-key-filter_bar {background: #0f1317; padding: .35rem .9rem .5rem .9rem !important; margin-bottom: .2rem;}
 .st-key-filter_bar label p {font-size: .72rem !important; color: #9aa3ad !important; font-weight: 700; letter-spacing: .04em;}
 .hp-range {display: flex; flex-direction: column;}
+/* 순위 막대 목록: 라벨 | 막대 | 값. 좁은 화면에서는 라벨이 위로 올라간다 */
+.hp-bars {display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto; gap: .3rem .6rem;
+          align-items: center; font-size: .8rem; margin: .2rem 0 .3rem 0;}
+.hp-bars .r {display: contents;}
+.hp-bars .l {color: #cbd2d9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;}
+.hp-bars .t {height: 12px; background: #161b21; border-radius: 3px; overflow: hidden;}
+.hp-bars .f {height: 100%; border-radius: 3px;}
+.hp-bars .v {color: #e6e8eb; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; font-size: .78rem;}
+.hp-bars-note {color: #7d8590; font-size: .72rem; margin-top: .2rem;}
+@media (max-width: 1100px) {
+  .hp-bars {grid-template-columns: minmax(0, 1fr) auto;}
+  .hp-bars .l {grid-column: 1 / -1; text-align: left; margin-bottom: -.15rem;}
+}
 .hp-range span {font-size: .72rem; color: #9aa3ad; font-weight: 700; letter-spacing: .04em; margin-bottom: .25rem;}
 .hp-range b {color: #e6e8eb; font-size: .95rem; font-variant-numeric: tabular-nums; padding: .35rem 0;}
 /* 같은 줄 카드 높이 맞추기: 열을 줄 높이만큼 늘리고, 열의 마지막 카드가 남은 높이를 채운다(안쪽 스크롤 없음) */
@@ -340,6 +353,25 @@ def dtfmt(series, fmt='%m-%d %H:%M'):
         return series.astype(str)
     s_ = series if pd.api.types.is_datetime64_any_dtype(series) else pd.to_datetime(series, errors='coerce', utc=True)
     return s_.dt.strftime(fmt).fillna('-')
+
+
+def bar_list(rows, note=None):
+    """폭에 맞춰 줄어드는 순위 막대 (HTML). rows: [(라벨, 값, 표시 문자열, 색)].
+    라벨은 넘치면 말줄임하고 마우스를 올리면 전체를 보여 준다. 숫자는 항상 오른쪽 끝에 고정.
+    라벨에 공격자 문자열(계정 등)이 올 수 있으므로 모두 escape한다."""
+    if not rows:
+        return
+    top = max((v for _, v, _, _ in rows), default=0) or 1
+    html = ['<div class="hp-bars">']
+    for label, v, text, color in rows:
+        w = max(1.5, v / top * 100) if v else 0
+        html.append(f'<div class="r"><div class="l" title="{escape(str(label))}">{escape(str(label))}</div>'
+                    f'<div class="t"><div class="f" style="width:{w:.1f}%;background:{color}"></div></div>'
+                    f'<div class="v">{escape(str(text))}</div></div>')
+    html.append('</div>')
+    if note:
+        html.append(f'<div class="hp-bars-note">{escape(note)}</div>')
+    st.markdown(''.join(html), unsafe_allow_html=True)
 
 
 def max_or_one(series):

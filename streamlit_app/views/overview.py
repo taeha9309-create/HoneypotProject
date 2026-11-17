@@ -223,22 +223,12 @@ with c1:
     dt = dt[(dt['sessions'] > 0) & (dt['rule_id'] != 'B19')].head(7).reset_index(drop=True)
     with C.card('위험 행동 Top (위험도 순)', help=X.DANGER_HELP + ' 셸 진입 요청(B19)은 거의 모든 봇에 나와 뺐습니다. '
                                                            '자세한 내용은 탐지 분석 페이지에 있습니다.'):
-        dt['label'] = dt['plain'].map(lambda t: t if len(t) <= 26 else t[:25] + '…')
-        dt['color'] = dt['danger'].map(X.DANGER_COLORS)
-        dt['text'] = [f'{n:,} ({p:.0f}%)' for n, p in zip(dt['sessions'], dt['percent'])]
         if dt.empty:
             st.caption('이 범위에서 관측된 위험 행동이 없습니다.')
-        base = alt.Chart(dt).encode(
-            y=alt.Y('label:N', sort=list(dt['label']), title=None, axis=alt.Axis(labelLimit=230, domain=False, ticks=False)),
-            x=alt.X('sessions:Q', title=None, axis=None,
-                    scale=alt.Scale(type='sqrt', domain=[0, max(1, dt['sessions'].max()) * 2.2])),
-            tooltip=[alt.Tooltip('plain:N', title='행동'), alt.Tooltip('danger_name:N', title='위험도'),
-                     alt.Tooltip('rule_id:N', title='규칙'), alt.Tooltip('sessions:Q', title='세션', format=',')])
-        C.chart((base.mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3, height={'band': 0.62})
-                 .encode(color=alt.Color('color:N', scale=None))
-                 + base.mark_text(align='left', dx=5, fontSize=11, color='#cbd2d9').encode(text='text:N'))
-                .properties(height=max(120, 28 * len(dt))))
-        st.caption('막대 길이는 차이가 커서 제곱근 눈금입니다. 빨강=높음 · 노랑=중간 · 회색=낮음')
+        else:
+            C.bar_list([(r.plain, r.sessions, f'{r.sessions:,} · {r.percent:.0f}%', X.DANGER_COLORS[r.danger])
+                        for r in dt.itertuples()],
+                       note='세션 수 · 명령 입력 세션 대비 %. 빨강=높음 · 노랑=중간 · 회색=낮음')
 with c2:
     au = b['auth']
     with C.card('인증', help='원본 로그의 로그인 성공·실패(세션·시간·IP가 맞는 것). 원본 로그가 없는 출처는 미수집입니다.'):
@@ -248,11 +238,9 @@ with c2:
             pct = au['success'] / max(au['total'], 1) * 100
             C.share_bar(f"시도 {au['total']:,}건", [('성공', pct, C.PINK, f"성공 {au['success']:,} ({pct:.1f}%)"),
                                                    ('실패', 100 - pct, '#4b5563', f"실패 {au['failed']:,}")])
-            pairs = au['pairs'].head(6)
-            C.chart(C.hbar(pairs, 'value', 'count', text='count:Q', row=22, min_h=100, color=C.PINK,
-                           tooltip=[alt.Tooltip('value:N', title='아이디 / 비밀번호'),
-                                    alt.Tooltip('count:Q', title='시도', format=',')]))
-            st.caption('많이 시도된 아이디 / 비밀번호')
+            st.markdown('<div class="hp-bars-note" style="margin-top:.4rem">많이 시도된 아이디 / 비밀번호</div>',
+                        unsafe_allow_html=True)
+            C.bar_list([(v, n, f'{n:,}', C.PINK) for v, n in zip(au['pairs']['value'].head(6), au['pairs']['count'].head(6))])
 with c3:
     fs = b['files']
     with C.card('수집 파일', help='Cowrie가 기록한 다운로드·업로드. URL은 링크가 아닙니다. 악성 여부는 확인하지 않았습니다.'):
@@ -260,13 +248,14 @@ with c3:
         C.share_bar(f"다운로드 시도 {fs['downloads'] + fs['failed']:,}건",
                     [('성공', fs['downloads'] / tried * 100, C.ORANGE, f"성공 {fs['downloads']:,}"),
                      ('실패', fs['failed'] / tried * 100, '#4b5563', f"실패 {fs['failed']:,}")])
-        files = fs['files'].head(5)
+        files = fs['files'].head(6)
         if files.empty:
             st.caption('이 범위에서 수집된 파일이 없습니다.')
         else:
-            st.dataframe(pd.DataFrame({'파일': files['name'], '세션': files['sessions'],
-                                       '최근': C.dtfmt(files['last'], '%m-%d %H:%M')}),
-                         hide_index=True, width='stretch', height='content')
+            st.markdown('<div class="hp-bars-note" style="margin-top:.4rem">최근 받아진 파일 · 세션 수 · 최근 관측</div>',
+                        unsafe_allow_html=True)
+            C.bar_list([(r.name, r.sessions, f'{r.sessions:,} · {last}', C.ORANGE)
+                        for r, last in zip(files.itertuples(), C.dtfmt(files['last'], '%m-%d'))])
         st.caption(f"고유 해시 {fs['unique_hashes']:,}개 · 업로드 {fs['uploads']:,}건 · 전체 목록은 세션 조사 > 수집 파일")
 
 # ---------------------------------------------------------------- ⑦ 반복 IP · 최근 명령
