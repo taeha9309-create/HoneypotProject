@@ -228,12 +228,19 @@ if tab == '세션':
 elif tab == 'IP':
     a, b = st.columns([1, 2])
     ip_q = a.text_input('IP 포함', key='i_ip', placeholder='예: 221.161')
+    sort_by = b.segmented_control('정렬', ['세션 많은 순', '인증 시도 많은 순 (무차별 대입 의심)'], default='세션 많은 순',
+                                  key='i_sort') or '세션 많은 순'
     ips = D.ip_list(sc, ip_q)
+    if sort_by.startswith('인증'):
+        ips = ips.sort_values(['attempts', 'passwords'], ascending=False, na_position='last').reset_index(drop=True)
     with C.card(f'IP 목록 · {len(ips):,}개', help='조회 범위 안의 세션 수 순서. 행을 클릭하면 아래에 IP 상세를 엽니다.'):
         shown = ips.head(500)
         view = pd.DataFrame({'IP': shown['src_ip'].map(D.mask_ip),
                              '국가': shown['country'].map(lambda x: names.get(x, x) if isinstance(x, str) else '위치 미상'),
                              '세션': shown['sessions'], '활동일': shown['days'], '허니팟': shown['sources'],
+                             '인증 시도': shown['attempts'].map(lambda v: '' if pd.isna(v) else f'{int(v):,}'),
+                             '비밀번호 종류': shown['passwords'].map(lambda v: '' if pd.isna(v) else f'{int(v):,}'),
+                             '첫 성공까지': shown['tries_before_success'].map(lambda v: '' if pd.isna(v) else f'{int(v)}회'),
                              '로그인 성공': shown['logins'], '명령 수': shown['commands'],
                              '처음': shown['first'].dt.strftime('%m-%d %H:%M'), '마지막': shown['last'].dt.strftime('%m-%d %H:%M')})
         ev = st.dataframe(view, hide_index=True, width='stretch', height=330, on_select='rerun',

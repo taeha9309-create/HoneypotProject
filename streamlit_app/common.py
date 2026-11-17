@@ -291,3 +291,15 @@ def world_svg(counts, height=300):
                      f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.3" fill="#fde7f3"/>')
     parts.append('</svg></body>')
     return ''.join(parts)
+
+
+def compact(df, key, step=10, on_select=None, **kw):
+    """표: 처음 step줄만 보여 주고 높이는 내용에 맞춘다(안쪽 스크롤 없음). 남으면 '더 보기'.
+    on_select='rerun'이면 선택 이벤트를 돌려준다 (선택 행 번호는 df 기준)."""
+    n = st.session_state.get(key, step)
+    extra = {'on_select': on_select, 'selection_mode': 'single-row'} if on_select else {}
+    ev = st.dataframe(df.head(n), hide_index=True, width='stretch', height='content', key=f'{key}_tbl', **extra, **kw)
+    if len(df) > n and st.button(f'더 보기 · {len(df) - n:,}개', key=f'{key}_more', type='tertiary'):
+        st.session_state[key] = n + step * 2
+        st.rerun()
+    return ev

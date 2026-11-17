@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 
 import common as C
 import data as D
+import intel as I
 
 C.inject_css()
 ds, f = C.dataset(), C.filters()
@@ -37,6 +38,47 @@ for s in status:
     items.append(f'<div><span class="hp-dot" style="background:{dot}"></span><b>{escape(s["name"])}</b> '
                  f'마지막 이벤트 {C.fmt_dt(s["last_event"])} · 가져온 시각 {C.fmt_dt(s["imported_at"])} · {escape(gap)}</div>')
 st.markdown(f'<div class="hp-status">{"".join(items)}</div>', unsafe_allow_html=True)
+
+
+@st.cache_data(show_spinner='새로 나타난 것 찾는 중…')
+def briefing_cached(version, filters):
+    return I.briefing(C.dataset(), C.dataset().rules, filters)
+
+
+@st.cache_data(show_spinner='보고서 만드는 중…')
+def report_cached(version, filters):
+    return I.report_markdown(C.dataset(), C.dataset().rules, filters)
+
+
+# ---------------------------------------------------------------- 0. 새로 나타난 것 (변화 브리핑)
+br = briefing_cached(C._version(), f)
+with C.card(f"새로 나타난 것 · {br['label']}",
+            help='비교 대상: 기간을 골랐으면 그 기간, 전체 기간이면 마지막 수집일. 그 전까지의 보유 데이터에 없던 항목만 셉니다. '
+                 '위험 행동 IP는 처음 보는 IP 중 위험도 높음 행동이 관측된 것입니다.'):
+    cols = st.columns([1, 1, 1, 1, 1.3])
+    ch = br['change']
+    brief = [('새 파일 해시', len(br['new_hashes']), C.LIME), ('새 다운로드 서버', len(br['new_servers']), C.ORANGE),
+             ('새 위험 행동 IP', len(br['new_danger_ips']), C.RED), ('처음 관측된 행동', len(br['new_rules']), C.VIOLET)]
+    for col, (lab, n, color) in zip(cols, brief):
+        with col:
+            C.kpi(lab, f'{n:,}', color if n else '#4b5563')
+    with cols[4]:
+        C.kpi('접속량', f"{br['sessions']:,}", C.CYAN, '직전 같은 기간 대비' if ch is not None else '비교 자료 없음', ch)
+    notes = []
+    if br['new_servers'] is not None and len(br['new_servers']):
+        notes.append('새 서버: ' + ', '.join(br['new_servers']['host'].head(5)))
+    if br['new_rules']:
+        notes.append('처음 관측: ' + ', '.join(f'{r} {n}' for r, n in br['new_rules'][:4]))
+    if len(br['new_danger_ips']):
+        notes.append('새 위험 IP: ' + ', '.join(br['new_danger_ips']['src_ip'].head(5)))
+    a, b = st.columns([3, 1])
+    a.caption(' · '.join(notes) if notes else '새로 나타난 위협 지표가 없습니다.')
+    with b:
+        st.page_link(st.session_state['pages']['intel'], label='위협 정보(IOC) 보기 →')
+    _ver, _f = C._version(), f
+    st.download_button('이 범위 보고서 내려받기 (Markdown)', lambda: report_cached(_ver, _f).encode('utf-8'),  # 누를 때 생성
+                       file_name=f'honeypot_report_{f.start:%Y%m%d}_{f.end:%Y%m%d}.md', mime='text/markdown',
+                       help='규모·주요 위협·IOC·권장 조치를 한 장으로 정리한 보고서입니다.')
 
 # ---------------------------------------------------------------- 1. 핵심 숫자 (Q1, Q2)
 k, prev = D.kpis(sc), D.compare(ds, f)
@@ -266,3 +308,25 @@ with C.card('최근 입력 명령', help='행동 설명은 화면용 쉬운 이�
     if ev.selection.rows:
         r = rc.iloc[ev.selection.rows[0]]
         C.open_detail(source=r['source'], session=r['session_id'])
+
+# ---------------------------------------------------------------- 6. 허니팟 상태
+hd = I.health_daily(sc)
+with C.card('허니팟 상태', help='로그인 후 명령 없이 끊은 비율이 갑자기 오르면 공격자가 허니팟을 알아챘을 가능성이 있습니다(위장 점검 신호). '
+                              '수집 공백은 원본 로그에서 이벤트가 0건인 시간 수입니다. 마지막 날은 하루치가 다 들어오지 않았을 수 있습니다.'):
+    left, right = st.columns([1.6, 1])
+    with left:
+        if hd.empty:
+            st.caption('이 범위에 세션이 없습니다.')
+        else:
+            st.caption('일별 · 로그인 성공 후 명령 없이 끊은 비율 (%)')
+            C.chart(alt.Chart(hd).mark_line(point=True, color=C.AMBER).encode(
+                x=alt.X('day:T', title=None, axis=alt.Axis(format='%m-%d', labelAngle=0, grid=False)),
+                y=alt.Y('bail:Q', title=None, scale=alt.Scale(domain=[0, 100]), axis=alt.Axis(domain=False, ticks=False)),
+                tooltip=[alt.Tooltip('day:T', title='날짜', format='%m-%d'),
+                         alt.Tooltip('bail:Q', title='명령 없이 끊음(%)', format='.1f'),
+                         alt.Tooltip('logins:Q', title='로그인 성공', format=','),
+                         alt.Tooltip('cmd_per_login:Q', title='로그인당 명령', format='.1f')]).properties(height=150))
+    with right:
+        rows_ = [{'허니팟': s_['name'], '마지막 이벤트': C.fmt_dt(s_['last_event']), '가져온 시각': C.fmt_dt(s_['imported_at']),
+                  '수집 공백': f"{s_['empty_hours']}시간" if s_['has_raw_logs'] else '원본 로그 없음'} for s_ in status]
+        st.dataframe(pd.DataFrame(rows_), hide_index=True, width='stretch', height='content')

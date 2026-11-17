@@ -632,6 +632,15 @@ def ip_list(sc, ip_query=''):
                                  sources=('source', lambda x: ', '.join(SOURCE_NAMES.get(v, v) for v in sorted(set(x)))),
                                  logins=('login_success', 'sum'), commands=('n_commands', 'sum'))
          .reset_index().sort_values('sessions', ascending=False))
+    # 인증 시도(무차별 대입 판단용): 원본 로그가 있는 출처만
+    lg = sc.logins.merge(s[['source', 'session_id', 'src_ip']], on=['source', 'session_id'], how='inner')
+    auth = lg.groupby('src_ip').agg(attempts=('success', 'size'), auth_ok=('success', 'sum'),
+                                    passwords=('password', 'nunique'))
+    first_ok = lg[lg['success'] == 1].groupby('src_ip')['time'].min()
+    before_ok = lg.assign(fo=lg['src_ip'].map(first_ok)).query('time < fo').groupby('src_ip').size()
+    g = g.join(auth, on='src_ip')
+    g['tries_before_success'] = g['src_ip'].map(before_ok)
+    g.loc[g['src_ip'].isin(first_ok.index) & g['tries_before_success'].isna(), 'tries_before_success'] = 0
     return g.reset_index(drop=True)
 
 

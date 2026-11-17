@@ -240,6 +240,38 @@ class DashboardBuildAndDataTests(unittest.TestCase):
         self.assertEqual(table.iloc[0]['danger'], 3)  # 위험도 높은 행동이 먼저
         self.assertEqual(table.set_index('rule_id').loc['S01', 'danger_name'], '높음')
 
+    def test_threat_intel(self):
+        import intel as I
+        sc = D.scope(self.ds, self.f())
+        servers = I.download_servers(self.ds, sc).set_index('host')
+        self.assertIn('45.90.1.2', servers.index)
+        self.assertEqual(servers.loc['45.90.1.2', 'ok'], 1)          # file_download 이벤트
+        self.assertEqual(servers.loc['45.90.1.2', 'failed'], 1)      # ftp:// 실패 이벤트
+        self.assertEqual(I.host_kind('127.0.0.1'), '루프백(무시)')
+        self.assertEqual(I.host_kind('100.70.1.1'), '사설·특수 주소')
+        self.assertEqual(I.host_kind('8.8.8.8'), '공인 IP')
+        ipi = I.ip_intel(self.ds, sc, self.rules).set_index('src_ip')
+        self.assertIn('내려받아 실행', ipi.loc['5.6.7.8', 'reasons'])
+        self.assertEqual(ipi.loc['5.6.7.8', 'attempts'], 3)
+        self.assertEqual(ipi.loc['5.6.7.8', 'passwords'], 3)
+        cred = I.credentials(sc)
+        self.assertEqual(set(zip(cred['username'], cred['password'])), {('root', '1234'), ('root', 'root'), ('admin', 'admin')})
+        self.assertEqual(len(I.shared_ips(sc)), 1)                    # 5.6.7.8은 서울·시드니 모두
+        self.assertFalse(I.exposure_checks(self.ds, sc, self.rules).empty)
+        md = I.report_markdown(self.ds, self.rules, self.f())
+        self.assertIn('# 허니팟 보고서', md)
+        self.assertNotIn('http://', md)
+        ips = D.ip_list(sc).set_index('src_ip')
+        self.assertEqual(ips.loc['5.6.7.8', 'tries_before_success'], 1)  # 실패 1번 후 성공
+
+    def test_briefing_new_items(self):
+        import intel as I
+        br = I.briefing(self.ds, self.rules, self.f(date(2026, 11, 1), date(2026, 11, 1)))
+        self.assertEqual(br['label'], '선택 기간')
+        self.assertIn('ab' * 32, br['new_hashes'])                  # 11-01에 처음 받아진 파일
+        self.assertEqual(list(br['new_servers']['host']), ['45.90.1.2'])
+        self.assertNotIn('B01', [r for r, _ in br['new_rules']])     # B01은 10-31 시드니에서 이미 관측
+
     def test_display_helpers(self):
         self.assertEqual(D.defang('a\x00 HTTPS://1.2.3.4/x'), 'a\\x00 hxxps://1.2.x.x/x')
         self.assertEqual(D.defang('tftp://1.2.3.4', mask_ips=False), 'txftp://1.2.3.4')
