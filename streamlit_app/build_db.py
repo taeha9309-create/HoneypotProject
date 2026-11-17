@@ -285,10 +285,15 @@ def main():
     p.add_argument('--geo', help='DB-IP country IPv4 CSV (first,last,country)')
     p.add_argument('--rules', default=str(ROOT / 'signatures/rules.yaml'))
     p.add_argument('--out', default=str(ROOT / 'data/dashboard'))
+    p.add_argument('--ml', action='store_true', help='끝나고 build_ml.py로 군집도 다시 학습한다 (scikit-learn·hdbscan 필요)')
     a = p.parse_args()
     if not (a.seoul_logs or a.syd_db):
         p.error('--seoul-logs 또는 --syd-db 중 하나는 필요합니다')
     build(a.out, a.seoul_logs, a.syd_db, a.geo, a.rules)
+    if a.ml:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import build_ml
+        build_ml.build(a.out)
 
 
 if __name__ == '__main__':

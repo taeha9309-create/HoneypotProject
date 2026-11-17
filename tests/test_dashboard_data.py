@@ -283,6 +283,16 @@ class DashboardBuildAndDataTests(unittest.TestCase):
         self.assertEqual(bl.set_index('src_ip').loc['5.6.7.8', 'tier'], 1)  # 내려받아 실행 → 1순위
         self.assertEqual(I.briefing_window(self.ds, self.f(full=True))[1], '최근 7일(10-31~11-02)')
 
+    def test_pattern_markers_and_missing_ml(self):
+        import patterns as P
+        rep = 'sh ; /bin/busybox HISILICON ; >/var/.f ; chmod <NUM> /var/.f ; /bin/busybox hostname PBOC ; wget <URL>'
+        mk = P.markers(rep)
+        self.assertIn('busybox HISILICON', mk)
+        self.assertIn('hostname PBOC', mk)
+        self.assertIn('.f 파일', mk)
+        self.assertIn('wget 다운로드', mk)
+        self.assertIsNone(P.load(self.out))  # build_ml을 안 돌렸으면 페이지가 안내만 한다
+
     def test_display_helpers(self):
         self.assertEqual(D.defang('a\x00 HTTPS://1.2.3.4/x'), 'a\\x00 hxxps://1.2.x.x/x')
         self.assertEqual(D.defang('tftp://1.2.3.4', mask_ips=False), 'txftp://1.2.3.4')

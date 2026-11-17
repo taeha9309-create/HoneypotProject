@@ -53,6 +53,7 @@ here = Path(__file__).resolve().parent / 'views'
 pages = {'overview': st.Page(str(here / 'overview.py'), title='Overview', icon='📊', default=True),
          'detail': st.Page(str(here / 'investigate.py'), title='세션 조사', icon='🔎'),
          'detection': st.Page(str(here / 'detection.py'), title='탐지 분석', icon='🛡️'),
+         'patterns': st.Page(str(here / 'patterns.py'), title='패턴 분석 (ML)', icon='🧩'),
          'intel': st.Page(str(here / 'intel.py'), title='위협 정보 (IOC)', icon='🚫')}
 st.session_state['pages'] = pages
 st.navigation(list(pages.values())).run()

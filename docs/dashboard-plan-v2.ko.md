@@ -27,7 +27,7 @@
 | 구분 | 포함 |
 |---|---|
 | **MVP** | ① Overview(변화 브리핑·보고서·허니팟 상태 포함) ② 세션 조사(세션·IP·수집 파일) ③ 탐지 분석 ④ 위협 정보(IOC) ⑤ 서울·시드니 통합 조회 ⑥ 공통 필터 |
-| 후속 | ML 패턴 화면(통합 재학습 여부 결정 후), 지도 궤적 연출. 인증 전용 화면은 만들지 않고 Overview·IP 탭·IOC에 나눠 넣음 |
+| 후속 | 지도 궤적 연출, 첫 로딩 단축. 인증 전용 화면은 만들지 않고 Overview·IP 탭·IOC에 나눠 넣음 (ML 패턴 화면은 11-17 추가) |
 | 제외 | 자동 수집·정기 분석·알림, 공개 배포·관리자 인증 |
 
 기술: Python + Streamlit + SQLite(읽기 전용). 기존 `ingest.py`, `match_signatures.py`, 규칙, ML 코드는 수정하지 않고 가져다 쓴다.
@@ -120,7 +120,7 @@
 | D4 | IP 표시 | **목록은 가림, 상세 화면에서 전체** |
 | D5 | 코드 위치 | **`streamlit_app/`**, 브랜치 `feat/streamlit-dashboard`(handoff 브랜치 기반) |
 | D6 | 신규 수집 범위 | **인증 + 다운로드 성공·실패 + 업로드** (`dashboard.db`의 `login_events`, `file_events`) |
-| D7 | ML 화면 | **MVP 제외** (`streamlit_app/later/`에 보류) |
+| D7 | ML 화면 | 11-17 변경: **서울+시드니 합본으로 대시보드 전용 재학습**(`build_ml.py`, 팀의 `ml/cluster.py` fit 그대로). 결과는 `data/dashboard/ml*`에만 쓰고 팀원 결과와 번호를 합치지 않음. 군집 이름은 자동(표식+공격 단계) |
 
 ## 8. 남은 결정·확인 사항
 
