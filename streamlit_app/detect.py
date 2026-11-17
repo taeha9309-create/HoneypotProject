@@ -128,13 +128,29 @@ def rule_examples(ds, sc, rule_id, limit=12):
 
 def linked_flows(ds, sc):
     """S01(같은 파일 다운로드→권한→실행)과 S02(디코딩→인터프리터)를 대상별로 묶는다."""
+    if ds.flows is not None:
+        hits = sc.hits[sc.hits['rule_id'].isin(['S01', 'S02'])][['source', 'session_id', 'rule_id', 'time']]
+        df = ds.flows.merge(hits, on=['source', 'session_id', 'rule_id'])
+        df = df.merge(sc.sessions[['source', 'session_id', 'src_ip']], on=['source', 'session_id'])
+        if df.empty:
+            return pd.DataFrame(columns=['rule_id', 'target', 'sessions', 'ips', 'first', 'last']), pd.DataFrame()
+        g = (df.groupby(['rule_id', 'target']).agg(sessions=('session_id', 'nunique'), ips=('src_ip', 'nunique'),
+                                                   first=('time', 'min'), last=('time', 'max'))
+             .reset_index().sort_values(['sessions', 'last'], ascending=False).reset_index(drop=True))
+        return g, df
     rows = []
+    want = sc.hits[sc.hits['rule_id'].isin(['S01', 'S02'])][['source', 'session_id']].drop_duplicates()
+    keys = pd.MultiIndex.from_frame(want)
+    sub = ds.commands[pd.MultiIndex.from_frame(ds.commands[['source', 'session_id']]).isin(keys)].sort_values('ts')
+    by_session = {k: list(zip(g['ts'], g['command'])) for k, g in sub.groupby(['source', 'session_id'])}
+    explained = {}
     for rid in ('S01', 'S02'):
         sess = rule_sessions(sc, rid)
         for r in sess.itertuples():
-            cmds = ds.commands[(ds.commands['source'] == r.source) & (ds.commands['session_id'] == r.session_id)]
-            cmds = cmds.sort_values('ts')
-            ev = D.explain_session(ds.rules, list(zip(cmds['ts'], cmds['command'])))['matches']
+            key = (r.source, r.session_id)
+            if key not in explained:
+                explained[key] = D.explain_session(ds.rules, by_session.get(key, []))['matches']
+            ev = explained[key]
             for item in ev:
                 if item['rule_id'] != rid:
                     continue

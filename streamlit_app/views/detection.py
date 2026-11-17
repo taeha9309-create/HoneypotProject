@@ -1,7 +1,7 @@
-"""탐지 분석: 공격은 어디까지 갔고, 어떤 행동이 있었나.
+"""탐지 분석: 어떤 공격 행동이 관측됐고, 어디까지 진행됐나 (관리자·분석가용).
 
-화면은 세 부분만 둔다. ① 한 줄 결론 ② 어디까지 갔나(그래프 하나) ③ 어떤 행동이 있었나(위험한 것부터).
-규칙 ID·흐름 대상·규칙에 안 걸린 입력 같은 전문가용 내용은 맨 아래 접힌 영역에 둔다.
+배치: ① KPI 한 줄 ② 진행 단계(왼쪽) + 위험도 순 행동 목록(오른쪽)
+     ③ 고른 행동의 상세(설명·규칙 정보 / 실제 입력 / 세션) ④ 하단 분석(흐름 대상 · 규칙 미해당 입력 · 캠페인)
 표는 내용 높이에 맞추고(안쪽 스크롤 없음), 길면 '더 보기'로 늘린다.
 """
 from html import escape
@@ -13,7 +13,6 @@ import streamlit as st
 import common as C
 import data as D
 import detect as X
-import story as S
 
 C.inject_css()
 ds, f = C.dataset(), C.filters()
@@ -27,26 +26,25 @@ sc = D.scope(ds, f)
 scope_kind = '전체 기간' if f.full_period else ('하루' if f.days == 1 else '선택 기간')
 period = f'{f.start:%m-%d}' if f.days == 1 else f'{f.start:%m-%d} ~ {f.end:%m-%d}'
 C.page_header('Detection', f'{scope_kind} {period} KST',
-              '공격자가 입력한 명령을 보고 어떤 공격을 하려 했는지 정리했습니다. 실제로 성공했는지는 확인하지 않았습니다.')
+              '명령 입력에서 관측된 공격 행동 (시그니처 규칙 기준). 입력 관측이며 실행 성공은 확인하지 않았습니다.')
 
 
-def more_table(df, key, step=10, **kw):
-    """처음 step줄만 보여 주고 '더 보기'로 늘린다. 표 높이는 내용에 맞춘다(안쪽 스크롤 없음)."""
+def compact(df, key, step=10, **kw):
+    """처음 step줄만, 높이는 내용에 맞춤. 남으면 '더 보기'."""
     n = st.session_state.get(key, step)
     ev = st.dataframe(df.head(n), hide_index=True, width='stretch', height='content', key=f'{key}_tbl', **kw)
-    if len(df) > n:
-        if st.button(f'더 보기 ({len(df) - n:,}개 더 있음)', key=f'{key}_more'):
-            st.session_state[key] = n + step * 2
-            st.rerun()
+    if len(df) > n and st.button(f'더 보기 · {len(df) - n:,}개', key=f'{key}_more', type='tertiary'):
+        st.session_state[key] = n + step * 2
+        st.rerun()
     return ev
 
 
-@st.cache_data(show_spinner='끝까지 이어진 흐름 찾는 중…')
+@st.cache_data(show_spinner='S01·S02 흐름 대상 찾는 중…')
 def flows_cached(version, filters):
     return X.linked_flows(C.dataset(), D.scope(C.dataset(), filters))
 
 
-@st.cache_data(show_spinner='규칙에 안 걸린 입력 정리 중…')
+@st.cache_data(show_spinner='규칙 미해당 입력 정리 중…')
 def unmatched_cached(version, filters):
     return X.unmatched_inputs(C.dataset(), D.scope(C.dataset(), filters))
 
@@ -56,127 +54,146 @@ if pop == 0:
     st.info('이 범위에 명령을 입력한 세션이 없습니다.')
     st.stop()
 table = X.danger_table(sc, rules)
+behavior_ids = set(table['rule_id'])
+detected = int(sc.hits[sc.hits['rule_id'].isin(behavior_ids)][['source', 'session_id']].drop_duplicates().shape[0])
+high_ids = set(table.loc[table['danger'] == 3, 'rule_id'])
+high_sessions = int(sc.hits[sc.hits['rule_id'].isin(high_ids)][['source', 'session_id']].drop_duplicates().shape[0])
 full = int(fn.loc[fn['level'] == 4, 'sessions'].iloc[0])
-high = table[(table['danger'] == 3) & (table['sessions'] > 0)]
-high_sessions = int(sc.hits[sc.hits['rule_id'].isin(set(high['rule_id']))][['source', 'session_id']]
-                    .drop_duplicates().shape[0])
 
-# ---------------------------------------------------------------- ① 한 줄 결론
-with C.card('한 줄 요약'):
-    st.markdown(
-        f'<div class="hp-story">명령을 입력한 <b>{pop:,}개</b> 세션 중 '
-        f'<b style="color:{C.RED}">{full:,}개</b>가 파일을 내려받아 <b>실행까지</b> 갔습니다. '
-        f'<b>{stopped_early / pop * 100:.0f}%</b>({stopped_early:,}개)는 명령창을 열거나 장비를 확인하는 단계에서 멈췄습니다. '
-        f'위험도 <b style="color:{C.RED}">높음</b> 행동이 나온 세션은 <b>{high_sessions:,}개</b>입니다.</div>',
-        unsafe_allow_html=True)
+# ---------------------------------------------------------------- ① KPI
+with C.card('DETECTION SUMMARY', help='분모는 조회 범위에서 명령을 입력한 세션입니다. ' + X.DANGER_HELP):
+    cols = st.columns(5)
+    kp = [('명령 입력 세션', f'{pop:,}', C.CYAN, ''),
+          ('규칙 탐지 세션', f'{detected:,}', C.LIME, f'{detected / pop * 100:.0f}%'),
+          ('위험도 높음 세션', f'{high_sessions:,}', C.RED, f'{high_sessions / pop * 100:.1f}%'),
+          ('끝까지 실행 (S01·S02)', f'{full:,}', C.ORANGE, f'{full / pop * 100:.1f}%'),
+          ('초기 단계에서 멈춤', f'{stopped_early / pop * 100:.0f}%', '#9aa3ad', f'{stopped_early:,}개 · 셸 진입·정보 수집까지')]
+    for col, (lab, val, color, sub) in zip(cols, kp):
+        with col:
+            C.kpi(lab, val, color, sub)
 
-# ---------------------------------------------------------------- ② 어디까지 갔나
-with C.card('공격은 어디까지 갔나',
-            help='세션마다 가장 깊이 간 단계를 구해서, 각 단계 "이상"까지 간 세션 수를 셌습니다. '
-                 '아래로 갈수록 실제 감염에 가까운 단계입니다.'):
-    fn['text'] = fn.apply(lambda r: f"{r['sessions']:,}개 ({r['percent']:.0f}%)", axis=1)
-    fn['color'] = [C.CYAN, '#38bdf8', C.AMBER, C.ORANGE, C.RED]
-    base = alt.Chart(fn).encode(
-        y=alt.Y('name:N', sort=list(fn['name']), title=None,
-                axis=alt.Axis(labelLimit=200, domain=False, ticks=False, labelFontSize=13, labelColor='#e6e8eb')),
-        x=alt.X('sessions:Q', title=None, axis=None, scale=alt.Scale(domain=[0, pop * 1.6], nice=False)),
-        tooltip=[alt.Tooltip('name:N', title='단계'), alt.Tooltip('desc:N', title='뜻'),
-                 alt.Tooltip('sessions:Q', title='세션', format=','), alt.Tooltip('percent:Q', title='비율(%)', format='.1f')])
-    C.chart((base.mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4, height={'band': 0.7})
-             .encode(color=alt.Color('color:N', scale=None))
-             + base.mark_text(align='left', dx=6, fontSize=13, fontWeight='bold', color='#e6e8eb').encode(text='text:N'))
-            .properties(height=56 * len(fn)))
-    st.caption(' · '.join(f"**{r.name}**: {r.desc}" for r in fn.itertuples()))
+# ---------------------------------------------------------------- ② 진행 단계 + 행동 목록
+left, right = st.columns([1, 1.9])
+with left:
+    with C.card('진행 단계', help='세션별로 가장 깊이 간 단계를 구해 각 단계 "이상"까지 간 세션 수를 셌습니다. '
+                                 + ' / '.join(f'{n}: {d}' for _, n, d in X.FUNNEL)):
+        fn['text'] = fn.apply(lambda r: f"{r['sessions']:,} · {r['percent']:.0f}%", axis=1)
+        fn['color'] = [C.CYAN, '#38bdf8', C.AMBER, C.ORANGE, C.RED]
+        base = alt.Chart(fn).encode(
+            y=alt.Y('name:N', sort=list(fn['name']), title=None, axis=alt.Axis(labelLimit=140, domain=False, ticks=False)),
+            x=alt.X('sessions:Q', title=None, axis=None, scale=alt.Scale(domain=[0, pop * 1.55], nice=False)),
+            tooltip=[alt.Tooltip('name:N', title='단계'), alt.Tooltip('desc:N', title='뜻'),
+                     alt.Tooltip('sessions:Q', title='세션', format=','),
+                     alt.Tooltip('percent:Q', title='비율(%)', format='.1f')])
+        C.chart((base.mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3, height={'band': 0.6})
+                 .encode(color=alt.Color('color:N', scale=None))
+                 + base.mark_text(align='left', dx=5, fontSize=11, color='#cbd2d9').encode(text='text:N'))
+                .properties(height=32 * len(fn)))
+        daily = X.step_daily(sc, rules, exclude_steps=('shell', 'recon'))
+        if not daily.empty:
+            per_day = daily.groupby('day')['sessions'].sum().reset_index()
+            st.caption('일별 · 파일 들여오기 이상 단계가 탐지된 세션')
+            C.chart(alt.Chart(per_day).mark_bar(color=C.ORANGE, cornerRadiusTopLeft=2, cornerRadiusTopRight=2).encode(
+                x=alt.X('day:T', title=None, axis=alt.Axis(format='%m-%d', labelAngle=0, grid=False, labelFontSize=10)),
+                y=alt.Y('sessions:Q', title=None, axis=alt.Axis(domain=False, ticks=False, format='~s', tickCount=3)),
+                tooltip=[alt.Tooltip('day:T', title='날짜', format='%m-%d'),
+                         alt.Tooltip('sessions:Q', title='세션', format=',')]).properties(height=110))
+with right:
+    with C.card('행동 목록 · 위험도 순', help=X.DANGER_HELP + ' 행을 누르면 아래에 상세가 열립니다.'):
+        show_all = st.toggle('미관측 규칙 포함', value=False, key='d_all')
+        rows = (table if show_all else table[table['sessions'] > 0]).reset_index(drop=True)
+        view = pd.DataFrame({'위험': rows['danger_name'], '규칙': rows['rule_id'], '행동': rows['plain'],
+                             '세션': rows['sessions'], '비율': rows['percent'], 'ATT&CK': rows['attack'],
+                             '마지막': rows['last'].map(lambda t: C.fmt_dt(t))})
+        danger_color = {X.DANGER_NAMES[k]: c for k, c in X.DANGER_COLORS.items()}
+        styled = (view.style.map(lambda v: f"color: {danger_color.get(v, C.INK)}; font-weight: 800", subset=['위험'])
+                  .map(lambda v: f'color: {C.CYAN}', subset=['규칙'])
+                  .map(lambda v: f'color: {C.AXIS}', subset=['ATT&CK', '마지막']))
+        ev = st.dataframe(styled, hide_index=True, width='stretch', height='content', on_select='rerun',
+                          selection_mode='single-row', key='d_list',
+                          column_config={'위험': st.column_config.TextColumn(width=48),
+                                         '규칙': st.column_config.TextColumn(width=48),
+                                         '행동': st.column_config.TextColumn(width='large'),
+                                         '세션': st.column_config.NumberColumn(format='%d', width=60),
+                                         '비율': st.column_config.ProgressColumn(format='%.1f%%', min_value=0,
+                                                                               max_value=100, width=90),
+                                         'ATT&CK': st.column_config.TextColumn(width=80),
+                                         '마지막': st.column_config.TextColumn(width=90)})
+        picked = rows.iloc[ev.selection.rows[0]] if ev.selection.rows else None
 
-# ---------------------------------------------------------------- ③ 어떤 행동이 있었나
-with C.card('어떤 행동이 있었나 (위험한 것부터)', help=X.DANGER_HELP + ' 행을 누르면 아래에 설명과 실제 명령, 관련 세션이 나옵니다.'):
-    show_all = st.toggle('한 번도 관측 안 된 행동도 보기', value=False, key='d_all')
-    rows = (table if show_all else table[table['sessions'] > 0]).reset_index(drop=True)
-    view = pd.DataFrame({'위험도': rows['danger_name'], '무엇을 하려 했나': rows['plain'],
-                         '세션': rows['sessions'], '마지막': rows['last'].map(lambda t: C.fmt_dt(t))})
-    danger_color = {X.DANGER_NAMES[k]: c for k, c in X.DANGER_COLORS.items()}
-    styled = (view.style.map(lambda v: f"color: {danger_color.get(v, C.INK)}; font-weight: 800", subset=['위험도'])
-              .map(lambda v: 'color: #f3f4f6', subset=['무엇을 하려 했나'])
-              .map(lambda v: f'color: {C.AXIS}', subset=['마지막']))
-    ev = st.dataframe(styled, hide_index=True, width='stretch', height='content', on_select='rerun',
-                      selection_mode='single-row', key='d_list',
-                      column_config={'위험도': st.column_config.TextColumn(width='small'),
-                                     '무엇을 하려 했나': st.column_config.TextColumn(width='large'),
-                                     '세션': st.column_config.NumberColumn(format='%d', width='small'),
-                                     '마지막': st.column_config.TextColumn(width='small')})
-    picked = rows.iloc[ev.selection.rows[0]] if ev.selection.rows else None
-
+# ---------------------------------------------------------------- ③ 고른 행동 상세
 if picked is not None:
     rid, lv = picked['rule_id'], X.DANGER.get(picked['rule_id'], 1)
-    with C.card(picked['plain']):
-        color = X.DANGER_COLORS[lv]
-        st.markdown(f'<div class="hp-story"><span class="hp-chip on" style="border-color:{color};color:{color}">'
-                    f'위험도 {X.DANGER_NAMES[lv]}</span> {escape(X.STEP_WHY.get(picked["step"], ""))}</div>',
-                    unsafe_allow_html=True)
-        st.caption(f"{picked['sessions']:,}개 세션 · 명령 입력 세션의 {picked['percent']:.1f}% · "
-                   f"마지막 {C.fmt_dt(picked['last'], '%Y-%m-%d %H:%M')} KST")
-        left, right = st.columns([1.3, 1])
-        with left:
-            st.markdown('**실제로 입력된 명령** (많이 나온 순)')
-            ex = X.rule_examples(ds, sc, rid, limit=30)
+    with C.card(f"{rid} · {picked['name']}"):
+        a, b, c = st.columns([1, 1.5, 1.1])
+        with a:
+            color = X.DANGER_COLORS[lv]
+            st.markdown(f'<span class="hp-chip on" style="border-color:{color};color:{color}">위험도 '
+                        f'{X.DANGER_NAMES[lv]}</span>', unsafe_allow_html=True)
+            st.markdown(f"**{escape(picked['plain'])}**")
+            st.caption(X.STEP_WHY.get(picked['step'], ''))
+            st.caption(f"세션 {picked['sessions']:,} ({picked['percent']:.1f}%) · 일치 {picked['hits']:,}회 · "
+                       f"마지막 {C.fmt_dt(picked['last'], '%m-%d %H:%M')}")
+            st.caption(f"규칙 단계: {picked['stage']} · ATT&CK {picked['attack']}")
+            if picked['note']:
+                st.caption(f"규칙 메모: {picked['note']}")
+        with b:
+            st.markdown('**일치한 입력** · 많이 나온 순')
+            ex = X.rule_examples(ds, sc, rid, limit=40)
             if ex.empty:
-                st.caption('한 줄짜리 명령이 아니라 여러 명령의 순서로 판단한 행동입니다. 오른쪽 세션을 열어 흐름을 보세요.'
+                st.caption('여러 명령의 순서로 판단하는 규칙입니다. 아래 "흐름 대상"과 세션 상세를 보세요.'
                            if rid in ('S01', 'S02') else '예시가 없습니다.')
             else:
-                more_table(ex.rename(columns={'command': '명령', 'count': '횟수', 'sessions': '세션'}), f'd_ex_{rid}', 5,
-                           column_config={'명령': st.column_config.TextColumn(width='large')})
-        with right:
+                compact(ex.rename(columns={'command': '명령', 'count': '횟수', 'sessions': '세션'}), f'd_ex_{rid}', 6,
+                        column_config={'명령': st.column_config.TextColumn(width='large'),
+                                       '횟수': st.column_config.NumberColumn(width=50),
+                                       '세션': st.column_config.NumberColumn(width=50)})
+        with c:
             sess = X.rule_sessions(sc, rid)
-            st.markdown(f'**이 행동이 나온 세션** · {len(sess):,}개 (누르면 세션 조사로 이동)')
+            st.markdown(f'**세션** · {len(sess):,}개 · 누르면 세션 조사')
             v = pd.DataFrame({'시각': sess['time'].dt.strftime('%m-%d %H:%M'), 'IP': sess['ip_masked'],
                               '허니팟': sess['source'].map(lambda s: D.SOURCE_NAMES.get(s, s))})
-            n = st.session_state.get(f'd_ss_{rid}', 8)
+            n = st.session_state.get(f'd_ss_{rid}', 6)
             ev2 = st.dataframe(v.head(n), hide_index=True, width='stretch', height='content', on_select='rerun',
                                selection_mode='single-row', key=f'd_sess_{rid}')
-            if len(v) > n and st.button(f'더 보기 ({len(v) - n:,}개 더 있음)', key=f'd_ss_more_{rid}'):
-                st.session_state[f'd_ss_{rid}'] = n + 16
+            if len(v) > n and st.button(f'더 보기 · {len(v) - n:,}개', key=f'd_ss_more_{rid}', type='tertiary'):
+                st.session_state[f'd_ss_{rid}'] = n + 12
                 st.rerun()
             if ev2.selection.rows:
                 r = sess.iloc[ev2.selection.rows[0]]
                 C.open_detail(source=r['source'], session=r['session_id'])
-else:
-    st.caption('위 목록에서 행동을 누르면 설명, 실제 명령, 관련 세션이 나옵니다.')
 
-# ---------------------------------------------------------------- 전문가용 더 보기
-# 접힌 상태에서는 계산하지 않도록 expander 대신 토글을 쓴다 (흐름 찾기가 수 초 걸림)
-expert = st.toggle('전문가용 더 보기 — 흐름 대상 파일 · 규칙에 안 걸린 입력 · 규칙 정보', key='d_expert')
-if expert:
+# ---------------------------------------------------------------- ④ 하단 분석
+with C.card('추가 분석'):
+    pick = st.segmented_control('보기', ['S01·S02 흐름 대상', '규칙 미해당 입력', '캠페인 흔적'],
+                                default='S01·S02 흐름 대상', key='d_bottom', label_visibility='collapsed') \
+        or 'S01·S02 흐름 대상'
     version = C._version()
-    t1, t2, t3 = st.tabs(['끝까지 이어진 흐름', '규칙에 안 걸린 입력', '규칙 정보'])
-    with t1:
-        flows, flow_rows = flows_cached(version, f)
-        st.caption('S01: 같은 이름의 파일을 내려받고 → 실행 권한을 주고 → 실행한 순서가 한 세션에서 관측됨. '
-                   'S02: 숨긴(base64) 코드를 풀어 바로 셸에 넘김. 대상 파일별로 묶었습니다.')
+    if pick == 'S01·S02 흐름 대상':
+        flows, _ = flows_cached(version, f)
+        st.caption('S01: 같은 파일을 내려받고 → 실행 권한 → 실행. S02: base64 디코딩 결과를 인터프리터로 직접 전달. 대상별 집계.')
         if flows.empty:
-            st.caption('이 범위에서 끝까지 이어진 흐름이 없습니다.')
+            st.caption('이 범위에서 관측된 흐름이 없습니다.')
         else:
-            more_table(pd.DataFrame({
-                '규칙': flows['rule_id'], '대상 파일': flows['target'].map(lambda t: D.defang(t, 60, False)),
+            compact(pd.DataFrame({
+                '규칙': flows['rule_id'], '대상': flows['target'].map(lambda t: D.defang(t, 60, False)),
                 '세션': flows['sessions'], 'IP': flows['ips'], '처음': flows['first'].dt.strftime('%m-%d %H:%M'),
-                '마지막': flows['last'].dt.strftime('%m-%d %H:%M')}), 'd_flows', 10)
-    with t2:
+                '마지막': flows['last'].dt.strftime('%m-%d %H:%M')}), 'd_flows', 8)
+    elif pick == '규칙 미해당 입력':
         groups, raws, share = unmatched_cached(version, f)
-        st.caption(f'어떤 탐지 규칙에도 걸리지 않은 명령 줄이 {share:.0f}%입니다. 명령 모양으로 짐작한 설명이며 탐지 건수에는 '
-                   '넣지 않습니다. 자주 나오는데 의미 있는 행동이면 새 규칙 후보입니다.')
+        st.caption(f'어떤 탐지 규칙에도 걸리지 않은 명령 줄 {share:.0f}%. 입력 형태 기반 추정으로 묶었으며 탐지 건수에는 포함하지 '
+                   '않습니다. 규칙 추가 후보 검토용입니다.')
         if not groups.empty:
-            more_table(pd.DataFrame({'짐작한 행동': groups['text'], '근거': groups['basis'], '명령 줄': groups['lines'],
-                                     '세션': groups['sessions'], '형태': groups['kinds']}), 'd_un_g', 8)
-            more_table(pd.DataFrame({'명령': raws['command'], '짐작한 행동': raws['text'], '명령 줄': raws['lines'],
-                                     '세션': raws['sessions']}), 'd_un_r', 10,
-                       column_config={'명령': st.column_config.TextColumn(width='large')})
-    with t3:
-        st.caption('화면의 쉬운 설명과 실제 탐지 규칙의 대응표입니다. 단계는 규칙 파일(MITRE ATT&CK 기준) 그대로입니다.')
-        more_table(pd.DataFrame({'규칙': table['rule_id'], '규칙 이름': table['name'], '위험도': table['danger_name'],
-                                 '단계(규칙 파일)': table['stage'], 'ATT&CK': table['attack'], '세션': table['sessions']}),
-                   'd_rules', 25)
+            g1, g2 = st.columns([1, 1.4])
+            with g1:
+                compact(pd.DataFrame({'추정': groups['text'], '근거': groups['basis'], '줄': groups['lines'],
+                                      '세션': groups['sessions'], '형태': groups['kinds']}), 'd_un_g', 8)
+            with g2:
+                compact(pd.DataFrame({'명령': raws['command'], '추정': raws['text'], '줄': raws['lines'],
+                                      '세션': raws['sessions']}), 'd_un_r', 8,
+                        column_config={'명령': st.column_config.TextColumn(width='large')})
+    else:
         cs = X.campaign_stats(sc, rules)
-        if not cs.empty and cs['sessions'].sum() > 0:
-            st.markdown('**알려진 공격 도구 흔적 (캠페인 규칙)**')
-            st.dataframe(pd.DataFrame({'규칙': cs['rule_id'], '이름': cs['name'], '세션': cs['sessions'],
-                                       '마지막': cs['last'].map(lambda t: C.fmt_dt(t))}),
-                         hide_index=True, width='stretch', height='content')
+        st.caption('특정 공격 도구·집단에서 쓰는 고유 문자열·파일명 규칙(C01~). 공격 단계가 아니라 출처 단서입니다.')
+        compact(pd.DataFrame({'규칙': cs['rule_id'], '이름': cs['name'], '세션': cs['sessions'],
+                              '마지막': cs['last'].map(lambda t: C.fmt_dt(t))}), 'd_camp', 10)

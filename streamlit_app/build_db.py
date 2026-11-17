@@ -13,6 +13,7 @@
         login_events   원본 로그의 인증 성공·실패 (세션·시간·IP가 맞는 것만)
         file_events    다운로드 성공·실패, 업로드 (원본 로그 기준)
         hits           현재 rules.yaml로 다시 계산한 탐지 결과
+        flows          S01/S02 연결 흐름의 대상 파일 (세션별)
         geo            IP → 국가 (DB-IP Country Lite, 오프라인)
         log_hours      원본 로그의 시간별 이벤트 수 (수집 공백 확인용)
         sources        출처별 자료 범위와 원본 로그 보유 여부
@@ -39,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import ingest  # noqa: E402
+from explain_signatures import explain_session  # noqa: E402
 from match_signatures import iter_sessions, load_rules, match  # noqa: E402
 
 SCHEMA = """
@@ -55,6 +57,9 @@ CREATE TABLE hits (
     source TEXT NOT NULL, session_id TEXT NOT NULL, rule_id TEXT NOT NULL,
     first_ts TEXT NOT NULL, n_hits INTEGER NOT NULL,
     PRIMARY KEY (source, session_id, rule_id));
+CREATE TABLE flows (            -- S01/S02 연결 흐름의 대상 (explain_signatures 근거)
+    source TEXT NOT NULL, session_id TEXT NOT NULL, rule_id TEXT NOT NULL, target TEXT NOT NULL,
+    PRIMARY KEY (source, session_id, rule_id, target));
 CREATE TABLE geo (ip TEXT PRIMARY KEY, country TEXT);
 CREATE TABLE log_hours (source TEXT NOT NULL, hour TEXT NOT NULL, events INTEGER NOT NULL,
     PRIMARY KEY (source, hour));
@@ -145,12 +150,24 @@ def scan_raw_logs(logs, db, source):
 
 
 def compute_hits(db, rules):
-    rows = []
+    """현재 규칙으로 탐지를 다시 계산하고, S01/S02가 걸린 세션은 연결 흐름의 대상도 함께 뽑는다."""
+    rows, flows = [], []
     with closing(ro(db)) as con:
         for (source, sid), cmds in iter_sessions(con):
-            for rid, (ts, n) in match(rules, cmds).items():
+            hits = match(rules, cmds)
+            for rid, (ts, n) in hits.items():
                 rows.append((source, sid, rid, ts, n))
-    return rows
+            if {'S01', 'S02'} & set(hits):
+                for item in explain_session(rules, cmds)['matches']:
+                    for e in item['evidence']:
+                        if e['relationship'] == 'ordered_same_literal_file':
+                            target = e['target'].rsplit('/', 1)[-1]
+                        elif e['relationship'] == 'decoder_stdout_to_interpreter_stdin':
+                            target = f"base64 → {e['interpreter']}"
+                        else:
+                            continue
+                        flows.append((source, sid, item['rule_id'], target))
+    return rows, flows
 
 
 def load_geo_ranges(csv_path):
@@ -239,7 +256,9 @@ def build(out, seoul_logs=None, syd_db=None, geo_csv=None, rules_path=ROOT / 'si
         ips = set()
         for source, name, *_ in sources:
             log(f'[{source}] 탐지 규칙 재계산')
-            con.executemany('INSERT OR REPLACE INTO hits VALUES (?,?,?,?,?)', compute_hits(out / name, rules))
+            hit_rows, flow_rows = compute_hits(out / name, rules)
+            con.executemany('INSERT OR REPLACE INTO hits VALUES (?,?,?,?,?)', hit_rows)
+            con.executemany('INSERT OR IGNORE INTO flows VALUES (?,?,?,?)', flow_rows)
             with closing(ro(out / name)) as c:
                 ips |= {r[0] for r in c.execute('SELECT DISTINCT src_ip FROM sessions WHERE src_ip IS NOT NULL')}
 

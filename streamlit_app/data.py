@@ -105,6 +105,7 @@ class Dataset:
     meta: dict
     rules: list
     warnings: list = field(default_factory=list)
+    flows: object = None   # build_db가 미리 계산한 S01/S02 대상. 없으면 화면에서 계산한다.
 
     @property
     def raw_sources(self):
@@ -131,6 +132,8 @@ def load(data_dir, rules):
         read = lambda sql: pd.read_sql_query(sql, con)  # noqa: E731
         sources = read('SELECT * FROM sources ORDER BY source')
         logins, files, hits = read('SELECT * FROM login_events'), read('SELECT * FROM file_events'), read('SELECT * FROM hits')
+        has_flows = con.execute("SELECT 1 FROM sqlite_master WHERE name='flows'").fetchone() is not None
+        flows = read('SELECT * FROM flows') if has_flows else None
         log_hours, geo = read('SELECT * FROM log_hours'), read('SELECT * FROM geo')
         meta = dict(con.execute('SELECT key, value FROM meta').fetchall())
     frames, warnings = defaultdict(list), []
@@ -184,7 +187,7 @@ def load(data_dir, rules):
         sources[col] = _kst(sources[col])
     if 'inputs' in meta:
         meta['inputs'] = json.loads(meta['inputs'])
-    return Dataset(sessions, commands, failed, logins, files, hits, log_hours, sources, meta, rules, warnings)
+    return Dataset(sessions, commands, failed, logins, files, hits, log_hours, sources, meta, rules, warnings, flows)
 
 
 # ---------------------------------------------------------------- 필터와 범위
