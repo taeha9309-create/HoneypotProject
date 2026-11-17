@@ -85,7 +85,7 @@ if tab == '차단 후보 IP':
                              '세션': view_src['sessions'], '인증 시도': view_src['attempts'],
                              '비밀번호 종류': view_src['passwords'], '활동일': view_src['days'],
                              '허니팟': view_src['sources'], '신규': view_src['new'].map({True: '신규', False: ''}),
-                             '마지막': view_src['last'].dt.strftime('%m-%d %H:%M')})
+                             '마지막': C.dtfmt(view_src['last'], '%m-%d %H:%M')})
         ev = C.compact(view, 'i_bl', 15, on_select='rerun',
                        column_config={'이유': st.column_config.TextColumn(width='medium')})
         st.download_button('차단 후보 IP CSV 내려받기', I.to_csv(view_src.assign(reasons=view_src['reasons'].map('|'.join))[
@@ -105,7 +105,7 @@ elif tab == '다운로드 서버':
                              '세션': pub_servers['sessions'], '공격 IP': pub_servers['ips'], '도구': pub_servers['tools'],
                              '다운로드 성공': pub_servers['ok'], '실패': pub_servers['failed'],
                              '예시 URL': pub_servers['urls'].map(lambda u: D.defang(u[0], 120, False)),
-                             '마지막': pub_servers['last'].dt.strftime('%m-%d %H:%M')})
+                             '마지막': C.dtfmt(pub_servers['last'], '%m-%d %H:%M')})
         ev = C.compact(view, 'i_sv', 15, on_select='rerun',
                        column_config={'예시 URL': st.column_config.TextColumn(width='large')})
         st.download_button('다운로드 서버 CSV 내려받기', I.to_csv(pub_servers.assign(
@@ -121,7 +121,7 @@ elif tab == '다운로드 서버':
             rel = (sc.commands[mask][['source', 'session_id', 'time']].drop_duplicates(['source', 'session_id'])
                    .merge(sc.sessions[['source', 'session_id', 'src_ip']], on=['source', 'session_id'])
                    .sort_values('time', ascending=False).reset_index(drop=True))
-            ev2 = C.compact(pd.DataFrame({'시각': rel['time'].dt.strftime('%m-%d %H:%M'), '공격 IP': rel['src_ip'],
+            ev2 = C.compact(pd.DataFrame({'시각': C.dtfmt(rel['time'], '%m-%d %H:%M'), '공격 IP': rel['src_ip'],
                                           '허니팟': rel['source'].map(lambda s: D.SOURCE_NAMES.get(s, s)),
                                           '세션 ID': rel['session_id']}), f'i_sv_rel_{host}', 8, on_select='rerun')
             if ev2.selection.rows:
@@ -131,9 +131,12 @@ elif tab == '다운로드 서버':
 elif tab == '파일 해시':
     with C.card(f'파일 해시 · {len(files):,}개', help='실제로 받아지거나 올라온 파일의 SHA-256입니다. 백신·EDR에 등록하고 내부 서버에서 '
                                                    '같은 파일을 찾아보세요. 외부 조회는 자동으로 하지 않습니다.'):
+        if files.empty:
+            st.caption('이 범위에서 수집된 파일이 없습니다.')
+            st.stop()
         view = pd.DataFrame({'SHA-256': files['shasum'], '파일': files['name'], '종류': files['kinds'],
                              '세션': files['sessions'], '공격 IP': files['ips'],
-                             '처음': files['first'].dt.strftime('%m-%d %H:%M'), '최근': files['last'].dt.strftime('%m-%d %H:%M')})
+                             '처음': C.dtfmt(files['first'], '%m-%d %H:%M'), '최근': C.dtfmt(files['last'], '%m-%d %H:%M')})
         ev = C.compact(view, 'i_fh', 15, on_select='rerun',
                        column_config={'SHA-256': st.column_config.TextColumn(width='large')})
         st.download_button('파일 해시 CSV 내려받기', I.to_csv(files.assign(url=files['url'].map(lambda u: D.defang(u, mask_ips=False)))[
@@ -142,7 +145,7 @@ elif tab == '파일 해시':
         if ev.selection.rows:
             row = files.iloc[ev.selection.rows[0]]
             obs = D.file_observations(sc, row['key'])
-            ev2 = C.compact(pd.DataFrame({'시각': obs['time'].dt.strftime('%m-%d %H:%M'), '종류': obs['kind'].map(D.FILE_KINDS),
+            ev2 = C.compact(pd.DataFrame({'시각': C.dtfmt(obs['time'], '%m-%d %H:%M'), '종류': obs['kind'].map(D.FILE_KINDS),
                                           '공격 IP': obs['src_ip'], '세션 ID': obs['session_id']}),
                             f"i_fh_rel_{row['key'][:12]}", 8, on_select='rerun')
             if ev2.selection.rows:
@@ -157,10 +160,13 @@ elif tab == '공격 계정':
         with a:
             with C.card(f'아이디·비밀번호 조합 · {len(creds):,}개', help='공격자가 시도한 조합입니다. 우리 계정에 같은 조합이 없는지 '
                                                                 '점검하고 비밀번호 금지 목록에 넣으세요. "성공"은 허니팟(일부러 약한 설정)에서의 결과입니다.'):
+                if creds.empty:
+                    st.caption('이 범위에 인증 이벤트가 없습니다.')
+                    st.stop()
                 view = pd.DataFrame({'아이디': creds['username'].map(lambda v: D.defang(v, 40, False)),
                                      '비밀번호': creds['password'].map(lambda v: D.defang(v, 40, False)),
                                      '시도': creds['attempts'], '성공': creds['success'], '공격 IP': creds['ips'],
-                                     '마지막': creds['last'].dt.strftime('%m-%d %H:%M')})
+                                     '마지막': C.dtfmt(creds['last'], '%m-%d %H:%M')})
                 C.compact(view, 'i_cr', 15)
                 st.download_button('계정 조합 CSV 내려받기', I.to_csv(creds), mime='text/csv',
                                    file_name=f'credentials_{f.start:%Y%m%d}_{f.end:%Y%m%d}.csv')

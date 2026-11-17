@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 import altair as alt
+import pandas as pd
 import streamlit as st
 
 HERE = Path(__file__).resolve().parent
@@ -313,6 +314,20 @@ def world_svg(counts, height=300):
                      f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.3" fill="#fde7f3"/>')
     parts.append('</svg></body>')
     return ''.join(parts)
+
+
+def dtfmt(series, fmt='%m-%d %H:%M'):
+    """날짜 열을 문자열로. 빈 열·날짜가 아닌 열·NaT도 안전하게 '-'로."""
+    if not len(series):
+        return series.astype(str)
+    s_ = series if pd.api.types.is_datetime64_any_dtype(series) else pd.to_datetime(series, errors='coerce', utc=True)
+    return s_.dt.strftime(fmt).fillna('-')
+
+
+def max_or_one(series):
+    """진행 막대 최댓값. 빈 표·NaN이면 1."""
+    v = series.max() if len(series) else None
+    return int(v) if v is not None and v == v and v > 0 else 1
 
 
 def compact(df, key, step=10, on_select=None, **kw):

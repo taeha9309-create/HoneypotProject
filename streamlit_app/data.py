@@ -468,15 +468,17 @@ def file_summary(sc):
 # ---------------------------------------------------------------- IP
 
 def repeat_ips(sc, rules, top=10):
-    s = sc.sessions
-    g = (s.groupby('src_ip').agg(sessions=('session_id', 'size'),
-                                 days=('start', lambda t: t.dt.date.nunique()),
+    s = sc.sessions.assign(day=sc.sessions['start'].dt.date)
+    g = (s.groupby('src_ip').agg(sessions=('session_id', 'size'), days=('day', 'nunique'),
                                  country=('country', 'first'), last=('start', 'max'))
          .reset_index().sort_values('sessions', ascending=False).head(top))
     names = rule_names(rules)
-    h = sc.hits.merge(s[['source', 'session_id', 'src_ip']], on=['source', 'session_id'])
+    # 상위 IP만 대상으로 대표 행동을 구한다 (전체 IP를 다 세면 느리다)
+    h = sc.hits.merge(s.loc[s['src_ip'].isin(g['src_ip']), ['source', 'session_id', 'src_ip']], on=['source', 'session_id'])
     h = h[h['rule_id'] != 'B19']  # 셸 진입 요청은 거의 모든 Telnet 세션에 걸려 대표 행동으로 쓰지 않는다
-    top_rule = h.groupby('src_ip')['rule_id'].agg(lambda r: r.value_counts().index[0])
+    top_rule = (h.groupby(['src_ip', 'rule_id']).size().reset_index(name='n')
+                .sort_values(['src_ip', 'n'], ascending=[True, False]).drop_duplicates('src_ip')
+                .set_index('src_ip')['rule_id'])
     g['behavior'] = g['src_ip'].map(lambda ip: names.get(top_rule.get(ip), '') if ip in top_rule else '')
     g['ip_masked'] = g['src_ip'].map(mask_ip)
     return g.reset_index(drop=True)

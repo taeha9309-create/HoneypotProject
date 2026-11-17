@@ -91,7 +91,7 @@ def show_session(source, session_id):
                 st.caption('일치한 규칙이 없습니다.')
             else:
                 st.dataframe(pd.DataFrame({'규칙': h['rule_id'], '이름': h['name'],
-                                           '처음 일치': h['time'].dt.strftime('%H:%M:%S'), '횟수': h['n_hits']}),
+                                           '처음 일치': C.dtfmt(h['time'], '%H:%M:%S'), '횟수': h['n_hits']}),
                              hide_index=True, width='stretch')
         if d['evidence']:
             with C.card('연결 근거 (S01 · S02)', help='같은 파일을 다운로드→실행 권한→실행한 순서, 또는 디코딩 결과를 인터프리터로 '
@@ -147,7 +147,7 @@ def show_ip(ip):
     with left:
         with C.card('세션 목록', help='행을 클릭하면 세션 탭에서 상세를 엽니다.'):
             s = d['sessions'].sort_values('start', ascending=False)
-            view = pd.DataFrame({'시작 (KST)': s['start'].dt.strftime('%m-%d %H:%M:%S'),
+            view = pd.DataFrame({'시작 (KST)': C.dtfmt(s['start'], '%m-%d %H:%M:%S'),
                                  '허니팟': s['source'].map(lambda x: D.SOURCE_NAMES.get(x, x)),
                                  '프로토콜': s['protocol'], '로그인': s['login_success'].map({1: '성공', 0: '-'}),
                                  '명령 수': s['n_commands'], '세션 ID': s['session_id']})
@@ -200,7 +200,7 @@ if tab == '세션':
     with C.card(f'세션 목록 · {len(lst):,}개', help='최신순. 행을 클릭하면 아래에 상세를 엽니다.'):
         n_show = st.session_state.get('s_list_n', 12)
         shown = lst.head(n_show)
-        view = pd.DataFrame({'시작 (KST)': shown['start'].dt.strftime('%m-%d %H:%M:%S'),
+        view = pd.DataFrame({'시작 (KST)': C.dtfmt(shown['start'], '%m-%d %H:%M:%S'),
                              '허니팟': shown['source'].map(lambda x: D.SOURCE_NAMES.get(x, x)),
                              '프로토콜': shown['protocol'], 'IP': shown['ip_masked'],
                              '국가': shown['country'].map(lambda x: names.get(x, x) if isinstance(x, str) else '위치 미상'),
@@ -244,10 +244,10 @@ elif tab == 'IP':
                              '비밀번호 종류': shown['passwords'].map(lambda v: '' if pd.isna(v) else f'{int(v):,}'),
                              '첫 성공까지': shown['tries_before_success'].map(lambda v: '' if pd.isna(v) else f'{int(v)}회'),
                              '로그인 성공': shown['logins'], '명령 수': shown['commands'],
-                             '처음': shown['first'].dt.strftime('%m-%d %H:%M'), '마지막': shown['last'].dt.strftime('%m-%d %H:%M')})
+                             '처음': C.dtfmt(shown['first'], '%m-%d %H:%M'), '마지막': C.dtfmt(shown['last'], '%m-%d %H:%M')})
         ev = C.compact(view, 'i_list', 12, on_select='rerun',
                        column_config={'세션': st.column_config.ProgressColumn(
-                           '세션', format='%d', min_value=0, max_value=int(shown['sessions'].max() or 1))})
+                           '세션', format='%d', min_value=0, max_value=C.max_or_one(shown['sessions']))})
         if ev.selection.rows:
             target = {'ip': shown.iloc[ev.selection.rows[0]]['src_ip']}
             st.session_state['detail'] = target
@@ -278,8 +278,8 @@ else:
                 picked = None
             else:
                 view = pd.DataFrame({'파일': cat['name'], '종류': cat['kinds'], '세션': cat['sessions'], 'IP': cat['ips'],
-                                     '처음': cat['first'].dt.strftime('%m-%d %H:%M'),
-                                     '최근': cat['last'].dt.strftime('%m-%d %H:%M'),
+                                     '처음': C.dtfmt(cat['first'], '%m-%d %H:%M'),
+                                     '최근': C.dtfmt(cat['last'], '%m-%d %H:%M'),
                                      'SHA-256': cat['shasum'].map(D.short_hash), '실물 보관': '미확인'})
                 ev = C.compact(view, 'f_list', 12, on_select='rerun')
                 picked = cat.iloc[ev.selection.rows[0]] if ev.selection.rows else None
@@ -292,7 +292,7 @@ else:
                         + (f"\n서로 다른 URL {picked['urls']}개" if picked['urls'] > 1 else ''),
                         language=None, wrap_lines=True)
                 obs = D.file_observations(sc, picked['key'])
-                v = pd.DataFrame({'시각': obs['time'].dt.strftime('%m-%d %H:%M'), '종류': obs['kind'].map(D.FILE_KINDS),
+                v = pd.DataFrame({'시각': C.dtfmt(obs['time'], '%m-%d %H:%M'), '종류': obs['kind'].map(D.FILE_KINDS),
                                   'IP': obs['src_ip'].map(D.mask_ip), '세션 ID': obs['session_id']})
                 ev2 = C.compact(v, f"f_obs_{picked['key'][:12]}", 8, on_select='rerun')
                 if ev2.selection.rows:
@@ -303,7 +303,7 @@ else:
         if fails.empty:
             st.caption('이 범위에서 다운로드 실패가 없습니다.')
         else:
-            v = pd.DataFrame({'시각': fails['time'].dt.strftime('%m-%d %H:%M:%S'), 'IP': fails['src_ip'].map(D.mask_ip),
+            v = pd.DataFrame({'시각': C.dtfmt(fails['time'], '%m-%d %H:%M:%S'), 'IP': fails['src_ip'].map(D.mask_ip),
                               'URL': fails['url'].map(lambda u: D.defang(u)), '오류': fails['error'].map(lambda e: D.defang(e, 80))})
             ev3 = C.compact(v, 'f_fail', 8, on_select='rerun',
                             column_config={'URL': st.column_config.TextColumn(width='large')})

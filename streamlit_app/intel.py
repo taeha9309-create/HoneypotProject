@@ -55,7 +55,8 @@ def download_servers(ds, sc):
         for host, tool, port, url in _servers_from_command(r.url):
             rows.append((host, tool, url, r.source, r.session_id, r.time, r.kind))
     if not rows:
-        return pd.DataFrame(columns=['host', 'kind', 'sessions', 'ips', 'urls', 'tools', 'ok', 'failed', 'first', 'last'])
+        return pd.DataFrame(columns=['host', 'kind', 'sessions', 'ips', 'urls', 'tools', 'ok', 'failed', 'first', 'last',
+                                     'self_hosted'])
     df = pd.DataFrame(rows, columns=['host', 'tool', 'url', 'source', 'session_id', 'time', 'event'])
     df = df.merge(sc.sessions[['source', 'session_id', 'src_ip']], on=['source', 'session_id'], how='left')
     g = df.groupby('host').agg(
@@ -78,7 +79,8 @@ def ip_intel(ds, sc, rules):
     """IP별 근거와 차단 후보 이유. 이유가 하나도 없으면 후보가 아니다."""
     s = sc.sessions
     if s.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['src_ip', 'sessions', 'country', 'first', 'last', 'days', 'sources', 'logins', 'commands',
+                                     'attempts', 'auth_ok', 'passwords', 'danger', 'reasons', 'tier', 'new', 'score', 'kind'])
     s = s.assign(day=s['start'].dt.date)
     base = (s.groupby('src_ip').agg(sessions=('session_id', 'size'), country=('country', 'first'),
                                     first=('start', 'min'), last=('start', 'max'),
@@ -276,7 +278,8 @@ def health_daily(sc):
     g = d.groupby('day').agg(sessions=('session_id', 'size'), logins=('login_success', 'sum'),
                              bail=('n_commands', lambda n: 0), cmd=('n_commands', 'sum')).reset_index()
     ok = d[d['login_success'] == 1]
-    bail = ok.groupby('day').apply(lambda x: (x['n_commands'] == 0).mean() * 100, include_groups=False)
+    # 로그인 성공 세션이 하루도 없으면 groupby.apply가 빈 표를 돌려주므로 벡터 연산으로 구한다
+    bail = ok.assign(z=(ok['n_commands'] == 0).astype(float)).groupby('day')['z'].mean() * 100
     g['bail'] = g['day'].map(bail).fillna(0.0)
     g['cmd_per_login'] = (g['cmd'] / g['logins'].where(g['logins'] > 0)).fillna(0.0)
     g['reliable'] = g['logins'] >= 30   # 로그인 30건 미만인 날은 비율이 크게 흔들린다

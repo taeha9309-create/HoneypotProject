@@ -107,7 +107,7 @@ with left:
             recent = (hh.drop_duplicates(['source', 'session_id']).head(6)
                       .merge(sc.sessions[['source', 'session_id', 'ip_masked']], on=['source', 'session_id'], how='left'))
             st.caption('최근 위험도 높음 세션 · 누르면 세션 조사')
-            rv = pd.DataFrame({'시각': recent['time'].dt.strftime('%m-%d %H:%M'), 'IP': recent['ip_masked'],
+            rv = pd.DataFrame({'시각': C.dtfmt(recent['time'], '%m-%d %H:%M'), 'IP': recent['ip_masked'],
                                '행동': [acts.get((s, i), '') for s, i in zip(recent['source'], recent['session_id'])]})
             evr = st.dataframe(rv, hide_index=True, width='stretch', height='content', on_select='rerun',
                                selection_mode='single-row', key='d_recent_high')
@@ -168,7 +168,7 @@ if picked is not None:
         with c:
             sess = X.rule_sessions(sc, rid)
             st.markdown(f'**세션** · {len(sess):,}개 · 누르면 세션 조사')
-            v = pd.DataFrame({'시각': sess['time'].dt.strftime('%m-%d %H:%M'), 'IP': sess['ip_masked'],
+            v = pd.DataFrame({'시각': C.dtfmt(sess['time'], '%m-%d %H:%M'), 'IP': sess['ip_masked'],
                               '허니팟': sess['source'].map(lambda s: D.SOURCE_NAMES.get(s, s))})
             n = st.session_state.get(f'd_ss_{rid}', 6)
             ev2 = st.dataframe(v.head(n), hide_index=True, width='stretch', height='content', on_select='rerun',
@@ -194,8 +194,8 @@ with C.card('추가 분석'):
         else:
             compact(pd.DataFrame({
                 '규칙': flows['rule_id'], '대상': flows['target'].map(lambda t: D.defang(t, 60, False)),
-                '세션': flows['sessions'], 'IP': flows['ips'], '처음': flows['first'].dt.strftime('%m-%d %H:%M'),
-                '마지막': flows['last'].dt.strftime('%m-%d %H:%M')}), 'd_flows', 8)
+                '세션': flows['sessions'], 'IP': flows['ips'], '처음': C.dtfmt(flows['first'], '%m-%d %H:%M'),
+                '마지막': C.dtfmt(flows['last'], '%m-%d %H:%M')}), 'd_flows', 8)
     elif pick == '규칙 미해당 입력':
         groups, raws, share = unmatched_cached(version, f)
         st.caption(f'어떤 탐지 규칙에도 걸리지 않은 명령 줄 {share:.0f}%. 입력 형태 기반 추정으로 묶었으며 탐지 건수에는 포함하지 '

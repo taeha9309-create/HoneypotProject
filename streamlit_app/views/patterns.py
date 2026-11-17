@@ -113,7 +113,7 @@ with right:
                           selection_mode='single-row', key=f'p_list_{proto}',
                           column_config={'이름': st.column_config.TextColumn(width='large'),
                                          '세션': st.column_config.ProgressColumn(format='%d', min_value=0,
-                                                                               max_value=int(cp['sessions'].max() or 1))})
+                                                                               max_value=C.max_or_one(cp['sessions']))})
         picked = cp.iloc[ev.selection.rows[0]] if ev.selection.rows else cp.iloc[0]
 
 # ---------------------------------------------------------------- 군집 상세
@@ -165,7 +165,7 @@ with C.card(f"{picked['label']} · {picked['name']}"):
                      alt.Tooltip('sessions:Q', title='세션', format=',')]).properties(height=150))
         st.markdown('**세션** (누르면 세션 조사)')
         ss = P.cluster_sessions(ml, sc, proto, cid)
-        ev2 = C.compact(pd.DataFrame({'시각': ss['start'].dt.strftime('%m-%d %H:%M'), 'IP': ss['ip_masked'],
+        ev2 = C.compact(pd.DataFrame({'시각': C.dtfmt(ss['start'], '%m-%d %H:%M'), 'IP': ss['ip_masked'],
                                       '허니팟': ss['source'].map(lambda s: D.SOURCE_NAMES.get(s, s))}),
                         f'p_sess_{proto}_{cid}', 6, on_select='rerun')
         if ev2.selection.rows:
@@ -179,7 +179,7 @@ with C.card(f'신규 패턴 후보 · {len(nv):,}종', help='노이즈이거나 
         st.caption('이 범위에 신규 패턴 후보가 없습니다.')
     else:
         view = pd.DataFrame({'이상 점수': nv['outlier'], '프로토콜': nv['protocol'].str.upper(), '세션': nv['sessions'],
-                             '다운로드': nv['downloaded'].map({1: '예', 0: ''}), '처음': nv['first'].dt.strftime('%m-%d %H:%M'),
+                             '다운로드': nv['downloaded'].map({1: '예', 0: ''}), '처음': C.dtfmt(nv['first'], '%m-%d %H:%M'),
                              '명령 흐름': nv['normalized_seq'].map(lambda t: D.defang(t, 160))})
         ev3 = C.compact(view, 'p_novel', 10, on_select='rerun',
                         column_config={'이상 점수': st.column_config.ProgressColumn(min_value=0, max_value=1, format='%.2f'),

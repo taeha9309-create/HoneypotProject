@@ -225,7 +225,9 @@ with c1:
                                                            '자세한 내용은 탐지 분석 페이지에 있습니다.'):
         dt['label'] = dt['plain'].map(lambda t: t if len(t) <= 26 else t[:25] + '…')
         dt['color'] = dt['danger'].map(X.DANGER_COLORS)
-        dt['text'] = dt.apply(lambda r: f"{r['sessions']:,} ({r['percent']:.0f}%)", axis=1)
+        dt['text'] = [f'{n:,} ({p:.0f}%)' for n, p in zip(dt['sessions'], dt['percent'])]
+        if dt.empty:
+            st.caption('이 범위에서 관측된 위험 행동이 없습니다.')
         base = alt.Chart(dt).encode(
             y=alt.Y('label:N', sort=list(dt['label']), title=None, axis=alt.Axis(labelLimit=230, domain=False, ticks=False)),
             x=alt.X('sessions:Q', title=None, axis=None,
@@ -263,7 +265,7 @@ with c3:
             st.caption('이 범위에서 수집된 파일이 없습니다.')
         else:
             st.dataframe(pd.DataFrame({'파일': files['name'], '세션': files['sessions'],
-                                       '최근': files['last'].dt.strftime('%m-%d %H:%M')}),
+                                       '최근': C.dtfmt(files['last'], '%m-%d %H:%M')}),
                          hide_index=True, width='stretch', height='content')
         st.caption(f"고유 해시 {fs['unique_hashes']:,}개 · 업로드 {fs['uploads']:,}건 · 전체 목록은 세션 조사 > 수집 파일")
 
@@ -278,13 +280,13 @@ with c1:
         ev = st.dataframe(view, hide_index=True, width='stretch', height='content', on_select='rerun',
                           selection_mode='single-row', key='ip_pick',
                           column_config={'세션': st.column_config.ProgressColumn('세션', format='%d', min_value=0,
-                                                                               max_value=int(ri['sessions'].max() or 1))})
+                                                                               max_value=C.max_or_one(ri['sessions']))})
         if ev.selection.rows:
             C.open_detail(ip=ri.iloc[ev.selection.rows[0]]['src_ip'])
 with c2:
     rc = b['recent']
     with C.card('최근 입력 명령', help='근거가 "규칙 일치"일 때만 시그니처 탐지입니다. 누르면 세션 조사로 이동합니다.'):
-        view = pd.DataFrame({'시각': rc['time'].dt.strftime('%m-%d %H:%M'), 'IP': rc['ip_masked'], '명령': rc['command_view'],
+        view = pd.DataFrame({'시각': C.dtfmt(rc['time'], '%m-%d %H:%M'), 'IP': rc['ip_masked'], '명령': rc['command_view'],
                              '행동 설명': rc['behavior'], '근거': rc['basis']})
         ev = st.dataframe(C.style_commands(view), hide_index=True, width='stretch', height='content', on_select='rerun',
                           selection_mode='single-row', key='cmd_pick',

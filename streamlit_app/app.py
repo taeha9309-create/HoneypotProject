@@ -26,6 +26,9 @@ except FileNotFoundError as e:
 
 first, last = D.data_range(ds)
 with st.sidebar:
+    st.markdown('<div style="font-weight:900;font-size:1.05rem;letter-spacing:.06em">🛡️ HONEYPOT</div>'
+                '<div style="color:#7d8590;font-size:.75rem;margin-bottom:.6rem">SSH·Telnet 공격 분석 대시보드</div>',
+                unsafe_allow_html=True)
     st.subheader('조회 범위')
     mode = st.radio('기간', ['전체 기간', '하루', '기간 지정'], horizontal=True, label_visibility='collapsed',
                     key='period_mode')
@@ -46,6 +49,14 @@ with st.sidebar:
     st.caption('모든 카드·그래프·목록에 같은 범위가 적용됩니다. 시각은 KST, 테스트 접속은 제외됩니다.')
     for w in ds.warnings:
         st.warning(w)
+    st.divider()
+    st.caption('**데이터 기준**')
+    for r in ds.sources.itertuples():
+        st.caption(f"· {D.SOURCE_NAMES.get(r.source, r.source)}: {r.first_event:%m-%d} ~ {r.last_event:%m-%d %H:%M} KST"
+                   + ('' if r.has_raw_logs else ' (DB 사본)'))
+    built = ds.sources['imported_at'].max()
+    st.caption(f"· 빌드 {built:%m-%d %H:%M} · 탐지 규칙 {ds.meta.get('rules_commit', '?')}")
+    st.caption('· 국가: [DB-IP](https://db-ip.com) Country Lite')
 
 st.session_state['filters'] = D.Filters(tuple(sources), tuple(protocols), start, end, mode == '전체 기간')
 
