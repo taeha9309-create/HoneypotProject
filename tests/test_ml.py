@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 import ingest
-from ml.cluster import TEST_IPS, assign, fit, normalize_part, normalize_session, seq_weights, split_command
+from ml.cluster import TEST_IPS, assign, carry_ids, fit, normalize_part, normalize_session, seq_weights, split_command
 
 
 class NormalizeTests(unittest.TestCase):
@@ -81,8 +81,9 @@ class WeightTests(unittest.TestCase):
 class PipelineTests(unittest.TestCase):
     def test_fit_then_assign(self):
         events = []
-        for i in range(15):
+        for i in range(20):
             events += attack(f'recon{i:02d}', f'203.0.113.{i}', RECON, i)
+        for i in range(15):
             events += attack(f'drop{i:02d}', f'203.0.113.{100 + i}', DROPPER, i)
         events += attack('mine', TEST_IPS[0], RECON, 0)
         events += [event('noproto', '198.51.100.9', 'cowrie.command.input', 1, input='uname -a')]
@@ -93,15 +94,20 @@ class PipelineTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 fit(con, out, models)
             fitted = dict(con.execute('SELECT session_id, cluster_id FROM ml_clusters'))
-            self.assertEqual(set(fitted), {f'{p}{i:02d}' for p in ('recon', 'drop') for i in range(15)})
-            self.assertEqual({fitted['recon00'], fitted['drop00']}, {0, 1})
+            self.assertEqual(set(fitted), {f'recon{i:02d}' for i in range(20)} | {f'drop{i:02d}' for i in range(15)})
+            self.assertEqual((fitted['recon00'], fitted['drop00']), (0, 1))  # 처음 fit은 크기 순
             self.assertTrue(Path(models, 'ssh.joblib').exists())
 
             # 새 세션 하나만 저장된 모델로 배정되고 테스트 IP 세션은 여전히 빠진다
             ingest_events(con, tmp, 'cowrie.json.1', attack('newdrop', '192.0.2.7', DROPPER, 77)
                           + attack('mine2', TEST_IPS[2], DROPPER, 1))
             with redirect_stdout(io.StringIO()):
-                assign(con, out, models)
+                stats = assign(con, out, models)  # 마지막 이벤트와 같은 시각이라 아직 진행 중일 수 있음
+            self.assertEqual((stats['new_sessions'], stats['pending'], stats['assigned']), (1, 1, 0))
+            self.assertNotIn('newdrop', dict(con.execute('SELECT session_id, 1 FROM ml_clusters')))
+            with redirect_stdout(io.StringIO()):
+                stats = assign(con, out, models, settle_minutes=0)
+            self.assertEqual((stats['assigned'], stats['noise'], stats['pending']), (1, 0, 0))
             rows = {sid: (c, by) for sid, c, by in con.execute(
                 'SELECT session_id, cluster_id, assigned_by FROM ml_clusters')}
             self.assertEqual(rows['newdrop'], (fitted['drop00'], 'assign'))
@@ -110,6 +116,26 @@ class PipelineTests(unittest.TestCase):
             for name in ('session_clusters.csv', 'cluster_summary.csv', 'novel_candidates.csv',
                          'comparison.csv', 'hdbscan_selection.md'):
                 self.assertTrue(Path(out, name).exists(), name)
+
+            # drop이 recon보다 커져도 다시 fit하면 이전 번호를 이어 받는다
+            ingest_events(con, tmp, 'cowrie.json.2', [e for i in range(10) for e in
+                                                      attack(f'drop2_{i}', f'198.51.100.{i}', DROPPER, i)])
+            with redirect_stdout(io.StringIO()):
+                fit(con, out, models)
+            refit = dict(con.execute('SELECT session_id, cluster_id FROM ml_clusters'))
+            self.assertEqual((refit['recon00'], refit['drop00'], refit['drop2_0'], refit['newdrop']), (0, 1, 1, 1))
+
+
+class CarryIdsTests(unittest.TestCase):
+    def test_overlap_and_new_ids(self):
+        old = {'a': 1, 'b': 1, 'c': 0, 'e': 3, 'f': -1}
+        new = {'a': 0, 'b': 0, 'c': 1, 'd': 2, 'f': 0, 'g': -1}
+        self.assertEqual(carry_ids(new, old), {-1: -1, 0: 1, 1: 0, 2: 4})  # 2는 짝이 없어 이전 최대 3 다음 번호
+
+    def test_one_old_id_per_new_cluster(self):
+        old = {'a': 5, 'b': 5, 'c': 5}
+        new = {'a': 0, 'b': 0, 'c': 1}  # 0이 겹침이 더 커서 5를 갖고, 1은 새 번호
+        self.assertEqual(carry_ids(new, old), {-1: -1, 0: 5, 1: 6})
 
 
 if __name__ == '__main__':
