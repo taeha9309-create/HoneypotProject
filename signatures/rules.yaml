@@ -243,3 +243,24 @@
   attack: T1083
   detector: directory_listing
   note: 'literal ls 및 제한된 옵션. 정상 관리 작업도 일치하며 파일 접근 성공은 미확인.'
+
+- id: B21
+  name: 프로세스 자기 명령줄 조회
+  type: behavior
+  stage: 정찰
+  patterns:
+    - '\bcat\s+(/proc/)?self/cmdline\b'
+  note: 'cat self/cmdline 입력 관측. 2026-11-23 고정 데이터(Telnet 15세션/15 IP, work/rule_candidates/FREEZE.md)와 2026-11-25 서울 홀드아웃(34세션/33 IP, 2026-11-18~24, work/rule_candidates/HOLDOUT_RESULTS_20261125.md)에서 재현 확인. 이 입력이 있는 세션 대부분은 이미 다른 규칙에도 걸려 신규 커버는 작다. ATT&CK 매핑은 근거 부족으로 비움(사람이 정한다).'
+
+- id: B22
+  name: SIP 요청 형태 입력
+  type: behavior
+  stage: 정찰
+  patterns:
+    - '^\s*Call-ID:\s'
+    - '^\s*CSeq:\s*\d+\s+[A-Z]+'
+    - '^\s*Max-Forwards:\s*\d'
+    - '^\s*(From|To|Contact):\s*<sip:'
+    - '^\s*Accept:\s*application/sdp'
+    - '\bSIP/2\.0\b'
+  note: 'Telnet 세션에서 SIP(인터넷 전화) 헤더 형태 입력 관측. 셸 명령이 아니라 다른 프로토콜 프로브로 보이나 확정하지 않는다. 2026-11-23 고정 데이터(Telnet 11세션/10 IP)와 2026-11-25 서울 홀드아웃(6세션/6 IP, 2026-11-20~25)에서 재현 확인. 일부 줄이 인증 필드로 기록되는 수집 단계 이슈가 있어 명령 필드만으로는 일부만 잡힌다. ATT&CK 매핑은 근거 부족으로 비움(셸 공격 행동이 아닐 수 있고, 사람이 정한다).'

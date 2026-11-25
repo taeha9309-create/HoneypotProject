@@ -62,10 +62,13 @@ class SessionTriageTests(unittest.TestCase):
         self.assertNotEqual(classify_session(self.rules, equal)['category'], 'linked_flow')
 
     def test_review_candidates_not_detections(self):
+        # review_unclassified is a standalone heuristic tagger, independent of rules.yaml.
         self.assertEqual(review_unclassified(rows('cd /proc && cat self/cmdline')),
                          ['process_cmdline_read_candidate'])
-        self.assertEqual(classify_session(self.rules, rows('cd /proc && cat self/cmdline'))['category'],
-                         'unclassified')
+        # B21 (added 2026-11-25) now matches this input, so it is no longer unclassified.
+        result = classify_session(self.rules, rows('cd /proc && cat self/cmdline'))
+        self.assertEqual(result['category'], 'individual_behavior')
+        self.assertIn('B21', result['behavior_rule_ids'])
 
     def test_read_only_export_filters_isolation_and_counts(self):
         with tempfile.TemporaryDirectory() as temp:
