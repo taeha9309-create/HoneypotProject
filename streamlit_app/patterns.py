@@ -66,6 +66,45 @@ def markers(text):
         found.append('프로세스 종료')
     return found
 
+SHELL_ONLY = {'sh', 'shell', 'enable', 'system', 'linuxshell', 'enablelinuxshell', 'ping', 'bash', '/bin/sh', '/bin/busybox'}
+
+
+def plain_title(rep, common, is_noise=False):
+    """군집 대표 시퀀스와 공통 규칙으로 쉬운 한 줄 이름을 붙인다. 입력만 보고 붙인 추정이며 검증된 분류가 아니다.
+    위에서부터 처음 맞는 것을 쓴다(더 진행된 행동이 우선). 맞는 것이 없으면 None."""
+    if is_noise:
+        return '어느 유형에도 안 맞는 입력'
+    t = (rep or '').lower()
+    cm = set(common or [])
+    steps = [x.strip() for x in t.split(';') if x.strip()]
+    if re.search(r'\b(wget|curl|tftp|ftpget)\b', t):
+        return '파일을 내려받아 실행하려는 시도'
+    if 'B12' in cm or re.search(r'kill -9|pkill|killall', t):
+        return '다른 악성 프로그램을 몰아내고 자리 잡으려는 봇'
+    if 'B13' in cm or re.search(r'xmrig|miner|stratum', t):
+        return '채굴 프로그램 설치 시도'
+    if 'authorized_keys' in t or 'B04' in cm:
+        return '다시 들어오려고 SSH 열쇠를 심으려는 시도'
+    if 'crontab' in t or 'B05' in cm:
+        return '자동 실행 예약을 등록하려는 시도'
+    if re.search(r'\bsh\s+\S*/\.[a-z0-9_]+', t):
+        return '숨김 스크립트를 만들어 실행하려는 봇'
+    if re.search(r'>\s*/[a-z/]*\.[a-z0-9_]+', t) and 'chmod' in t:
+        return '쓰고 실행할 수 있는 폴더를 찾는 봇'
+    if re.search(r'>\s*/[a-z/]*\.[a-z0-9_]+', t):
+        return '숨김 파일을 만들어 보는 시도'
+    if 'self/cmdline' in t or 'B21' in cm:
+        return '실행 중인 프로그램 정보를 살펴보는 탐색'
+    if 'proc/self/exe' in t or re.search(r'busybox\s+[a-z]{3,}', t):
+        return 'IoT 장비 종류를 확인하는 봇'
+    if re.search(r'uname|cpuinfo|/proc/|lscpu|free -|df -', t):
+        return '서버 사양을 알아보는 정찰'
+    if re.search(r'[`\[\]^]', t):
+        return '글자가 뒤섞여 읽기 어려운 입력 (가린 명령으로 추정)'
+    if steps and all(x in SHELL_ONLY for x in steps):
+        return '명령창만 열어 보는 단순 접속'
+    return None
+
 
 def cluster_table(ml, ds, sc, rules):
     """조회 범위 안의 군집별 집계 + 자동 이름. (protocol, cluster_id) 단위."""
@@ -93,8 +132,9 @@ def cluster_table(ml, ds, sc, rules):
             if not mk and not steps:   # 표식·단계가 없으면 대표 명령 앞부분으로 구분한다
                 head = ' → '.join(dict.fromkeys(x.strip() for x in (rep or '').split(' ; ') if x.strip()))
                 name += f' ({head[:40]}{"…" if len(head) > 40 else ""})' if head else ''
+        plain = plain_title(rep, common, cid == -1)
         by_src = g['source'].value_counts()
-        rows.append({'protocol': proto, 'cluster_id': int(cid), 'name': name, 'sessions': n,
+        rows.append({'protocol': proto, 'cluster_id': int(cid), 'name': name, 'plain': plain or name, 'sessions': n,
                      'ips': int(g['src_ip'].nunique()), 'seoul': int(by_src.get('seoul', 0)), 'syd': int(by_src.get('syd', 0)),
                      'first': g['start'].min(), 'last': g['start'].max(), 'days': int(g['start'].dt.date.nunique()),
                      'top_ip_share': g['src_ip'].value_counts(normalize=True).iloc[0] * 100,

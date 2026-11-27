@@ -74,7 +74,8 @@ with st.container(border=True, key='filter_bar'):
 st.session_state['filters'] = D.Filters(tuple(sources), tuple(protocols), start, end, mode == '전체 기간')
 
 here = Path(__file__).resolve().parent / 'views'
-pages = {'overview': st.Page(str(here / 'overview.py'), title='Overview', icon=':material/monitoring:', default=True),
+pages = {'home': st.Page(str(here / 'home.py'), title='홈', icon=':material/home:', default=True),
+         'overview': st.Page(str(here / 'overview.py'), title='상세 현황', icon=':material/monitoring:'),
          'detail': st.Page(str(here / 'investigate.py'), title='세션 조사', icon=':material/manage_search:'),
          'detection': st.Page(str(here / 'detection.py'), title='탐지 분석', icon=':material/policy:'),
          'patterns': st.Page(str(here / 'patterns.py'), title='패턴 분석 (ML)', icon=':material/hub:'),
