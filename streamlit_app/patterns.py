@@ -158,8 +158,17 @@ def points_in_scope(ml, sc):
     return p[p['in_scope'] > 0].reset_index(drop=True)
 
 
+NOVEL_MIN_OUTLIER = 0.05   # 이 점수 미만이면서 노이즈도 아닌 행은 후보에서 뺀다 (아래 설명)
+
+
 def novel_view(ml, sc):
     n = ml.novel
+    if n.empty:
+        return n
+    # novel_candidates.csv는 큰 군집의 "상위 5%" 경계가 0 근처가 되어 점수 0인 세션까지 outlier로 담는다.
+    # 노이즈이거나 이상 점수가 기준 이상인 행만 남긴다 (팀원 전달 문서 7장 기준).
+    is_noise = n['reasons'].fillna('').str.contains('noise')
+    n = n[is_noise | (pd.to_numeric(n['outlier_score'], errors='coerce').fillna(0) >= NOVEL_MIN_OUTLIER)]
     if n.empty:
         return n
     keys = pd.MultiIndex.from_frame(sc.sessions[['source', 'session_id']])
