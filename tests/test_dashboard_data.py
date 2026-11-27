@@ -264,6 +264,19 @@ class DashboardBuildAndDataTests(unittest.TestCase):
         ips = D.ip_list(sc).set_index('src_ip')
         self.assertEqual(ips.loc['5.6.7.8', 'tries_before_success'], 1)  # 실패 1번 후 성공
 
+    def test_flow_groups_for_ioc_page(self):
+        import intel as I
+        sc = D.scope(self.ds, self.f())
+        groups, summary = I.flow_groups(sc, min_steps=1, min_sessions=1)
+        self.assertEqual(summary['min_steps'], 1)
+        a1 = groups[groups['sources'] == 'seoul:1'].iloc[0]          # 서울 세션 a1 (wget → chmod → 실행)
+        self.assertEqual((a1['sessions'], a1['ips'], a1['hashes'], a1['servers']), (1, 1, 1, 1))
+        self.assertEqual(a1['ips_raw'], ['5.6.7.8'])
+        self.assertEqual(a1['concentration'], 'few_ips')
+        self.assertIn('<URL>', a1['flow'])                             # 정규화로 URL 원문은 흐름에 남지 않는다
+        self.assertNotIn('http://', ' '.join(groups['flow']))
+        self.assertEqual(set(groups['protocol']), {'telnet'})          # 명령이 있는 세션만 (ssh b2는 명령 없음)
+
     def test_briefing_new_items(self):
         import intel as I
         br = I.briefing(self.ds, self.rules, self.f(date(2026, 11, 1), date(2026, 11, 1)))

@@ -1,6 +1,6 @@
 """위협 정보(IOC): 허니팟에서 얻은 정보를 실제 방어에 옮겨 쓰기.
 
-차단 후보 IP · 다운로드 서버 · 파일 해시 · 공격 계정 · 서울/시드니 공통 IP를 모으고 CSV로 내려받는다.
+차단 후보 IP · 명령 흐름 묶음 · 다운로드 서버 · 파일 해시 · 공격 계정 · 서울/시드니 공통 IP를 모으고 CSV로 내려받는다.
 이 페이지는 차단 목록으로 쓰도록 IP를 가리지 않는다(다른 페이지 목록은 가림). URL은 링크가 되지 않게 표시한다.
 """
 import pandas as pd
@@ -64,7 +64,7 @@ with C.card('우리 환경 점검 포인트', help='허니팟에서 관측된 �
                                 '권장 조치': st.column_config.TextColumn(width='large')})
 
 # ---------------------------------------------------------------- 탭
-tab = st.segmented_control('IOC', ['차단 후보 IP', '다운로드 서버', '파일 해시', '공격 계정', '서울·시드니 공통'],
+tab = st.segmented_control('IOC', ['차단 후보 IP', '명령 흐름 묶음', '다운로드 서버', '파일 해시', '공격 계정', '서울·시드니 공통'],
                            default='차단 후보 IP', key='i_tab', label_visibility='collapsed') or '차단 후보 IP'
 
 if tab == '차단 후보 IP':
@@ -94,6 +94,44 @@ if tab == '차단 후보 IP':
             file_name=f'blocklist_{f.start:%Y%m%d}_{f.end:%Y%m%d}.csv', mime='text/csv')
         if ev.selection.rows:
             C.open_detail(ip=view_src.iloc[ev.selection.rows[0]]['src_ip'])
+
+elif tab == '명령 흐름 묶음':
+    @st.cache_data(show_spinner='명령 흐름 묶는 중…')
+    def flow_cached(version, filters):
+        d = C.dataset()
+        return I.flow_groups(D.scope(d, filters))
+
+    try:
+        fg, fg_sum = flow_cached(version, f)
+    except ImportError:
+        st.warning('이 기능은 ML 패키지(hdbscan, scikit-learn)가 필요합니다. ml/requirements.txt를 설치하세요.')
+        st.stop()
+    with C.card(f'명령 흐름 묶음 · {len(fg):,}개',
+                help='정규화한 명령 순서가 같은 세션을 한 묶음으로 보고, 그 묶음이 몇 개 IP에서 왔는지 봅니다. '
+                     f'명령 {fg_sum["min_steps"]}단계 이상, 묶음당 {fg_sum["min_sessions"]}세션 이상만 대상입니다. '
+                     '같은 흔적을 공유한다는 뜻이지 같은 행위자라는 뜻이 아닙니다(공개 봇 스크립트는 여러 곳에서 쓰입니다).'):
+        if fg.empty:
+            st.caption('이 범위에 묶음이 없습니다.')
+            st.stop()
+        st.caption('소수 IP 반복 = IP 5개 이하이거나 한 IP가 절반 이상 · 분산 = IP 20개 이상이고 한 IP가 20% 미만 · 그 외 중간. '
+                   '임계값은 힌트이며 검증된 기준이 아닙니다. 소수 IP 반복은 IP 차단, 분산은 입력 흐름 기준 탐지가 맞는지 검토하세요.')
+        kinds = st.segmented_control('집중도', list(I.FLOW_LABELS), default=list(I.FLOW_LABELS), selection_mode='multi',
+                                     key='i_fg_kind', format_func=I.FLOW_LABELS.get) or list(I.FLOW_LABELS)
+        fv = fg[fg['concentration'].isin(kinds)].reset_index(drop=True)
+        view = pd.DataFrame({'집중도': fv['concentration'].map(I.FLOW_LABELS), '세션': fv['sessions'], 'IP': fv['ips'],
+                             '최다 IP 점유': fv['top_ip_share'].map(lambda v: f'{v:.0%}'), '활동일': fv['days'],
+                             '허니팟': fv['sources'], '규칙': fv['rules'], '해시': fv['hashes'], '서버': fv['servers'],
+                             '입력 흐름': fv['flow'].map(lambda t: D.defang(t, 200, False))})
+        ev = C.compact(view, 'i_fg', 15, on_select='rerun',
+                       column_config={'입력 흐름': st.column_config.TextColumn(width='large')})
+        st.download_button('명령 흐름 묶음 CSV 내려받기', I.to_csv(fv.drop(columns=['top_ip_raw', 'ips_raw', 'top_ip', 'clusters'])),
+                           file_name=f'flow_groups_{f.start:%Y%m%d}_{f.end:%Y%m%d}.csv', mime='text/csv')
+        if ev.selection.rows:
+            row = fv.iloc[ev.selection.rows[0]]
+            st.markdown(f'**선택한 묶음의 IP {len(row["ips_raw"]):,}개** (차단 검토용, 자동 차단 목록이 아닙니다)')
+            st.code('\n'.join(row['ips_raw']), language=None)
+            st.download_button('이 묶음의 IP TXT', '\n'.join(row['ips_raw']).encode('utf-8'),
+                               file_name=f'flow_group_{row["group_id"]}_ips.txt', mime='text/plain')
 
 elif tab == '다운로드 서버':
     with C.card(f'다운로드 서버 · {len(pub_servers):,}개',

@@ -325,5 +325,43 @@ def report_markdown(ds, rules, f):
     return '\n'.join(lines)
 
 
+FLOW_LABELS = {'few_ips': '소수 IP 반복', 'distributed': '분산', 'mixed': '중간'}
+
+
+def flow_groups(sc, min_steps=3, min_sessions=2):
+    """같은 명령 흐름(ml/cluster.py 정규화 기준)을 가진 세션 묶음과 IP 집중도. 조회 범위(sc)만 대상으로 한다.
+
+    분석 규칙은 ml/analysis/flow_groups.py와 같다(같은 함수 사용). 같은 흔적을 공유한다는 뜻이지 같은 행위자라는 뜻이 아니다.
+    ml.cluster가 hdbscan·scikit-learn을 import하므로 ml/requirements.txt가 설치돼 있어야 한다.
+    """
+    from urllib.parse import urlparse
+    from ml.analysis import flow_groups as FG
+    from ml.cluster import normalize_session
+
+    cmds = sc.commands.sort_values(['source', 'session_id', 'time'], kind='stable')
+    seqs = {k: g['command'].tolist() for k, g in cmds.groupby(['source', 'session_id'], sort=False)}
+    rules, hashes, hosts = defaultdict(set), defaultdict(set), defaultdict(set)
+    for r in sc.hits.itertuples():
+        rules[(r.source, r.session_id)].add(r.rule_id)
+    for r in sc.files.itertuples():
+        key = (r.source, r.session_id)
+        if isinstance(r.shasum, str) and r.shasum:
+            hashes[key].add(r.shasum)
+        if isinstance(r.url, str) and r.url:
+            host = urlparse(r.url if '://' in r.url else 'http://' + r.url).hostname
+            if host and host not in FG.LOCAL_HOSTS:
+                hosts[key].add(host)
+    rows = []
+    for s in sc.sessions.itertuples():
+        key = (s.source, s.session_id)
+        if key not in seqs:
+            continue
+        rows.append({'source': s.source, 'session_id': s.session_id, 'protocol': s.protocol, 'ip': s.src_ip,
+                     'day': s.start.strftime('%Y-%m-%d'), 'seq': normalize_session(seqs[key]), 'cluster': None,
+                     'rules': rules.get(key, set()), 'hashes': hashes.get(key, set()), 'hosts': hosts.get(key, set())})
+    groups, _, summary = FG.analyze(rows, min_steps, min_sessions)
+    return pd.DataFrame(groups), summary
+
+
 def to_csv(df):
     return df.to_csv(index=False).encode('utf-8-sig')
