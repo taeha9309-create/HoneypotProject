@@ -31,6 +31,7 @@ curl -L --fail https://raw.githubusercontent.com/sapics/ip-location-db/main/dbip
     --geo work/geo/dbip-country-ipv4.csv --ml
 ```
 결과는 `data/dashboard/`(git 제외)에 생긴다. 원본 로그와 입력 DB는 읽기만 한다.
+상황별 갱신 방법(규칙만 바뀐 경우, 군집 번호를 유지하며 새 로그를 넣는 경우 등)은 [docs/data-refresh.ko.md](../docs/data-refresh.ko.md)를 본다.
 
 | 파일 | 내용 |
 |---|---|
