@@ -88,6 +88,20 @@ def overlap(train, held):
     }
 
 
+def top_ip(items):
+    """items: {키: (순서, src_ip)}. 세션이 가장 많은 IP(동률이면 문자열이 작은 IP). 없으면 None."""
+    counts = Counter(v[1] for v in items.values())
+    if not counts:
+        return None
+    best = max(counts.values())
+    return min(ip for ip, n in counts.items() if n == best)
+
+
+def drop_ip(items, ip):
+    """해당 IP의 세션을 뺀 새 dict(원본은 그대로)."""
+    return {k: v for k, v in items.items() if v[1] != ip}
+
+
 def partition_diff(a, b):
     """a, b: {키: (protocol, cluster_id)}. 같은 키 집합에서 군집 번호가 다른 세션 수(0이면 완전히 같다)."""
     if set(a) != set(b):
@@ -186,12 +200,13 @@ def add_eval_sessions(con, src_ml_db, eval_keys):
     orig.close()
 
 
-def fit_quiet(con, out_dir, models_dir):
+def fit_quiet(con, out_dir, models_dir, **kwargs):
+    """cluster.fit을 그대로 호출한다. kwargs는 fit의 기존 인자(예: ip_cap)만 전달한다."""
     from ml import cluster
     buf = io.StringIO()
     t = time.perf_counter()
     with contextlib.redirect_stdout(buf):
-        cluster.fit(con, out_dir, models_dir)
+        cluster.fit(con, out_dir, models_dir, **kwargs)
     return round(time.perf_counter() - t, 1)
 
 
@@ -213,8 +228,11 @@ def source_config(data_dir):
     return rows
 
 
-def run_split(data_dir, split, out_dir, with_assign=True):
-    """한 분할을 실행하고 요약 dict를 반환한다. 원본 DB 해시를 전후로 비교한다."""
+def run_split(data_dir, split, out_dir, with_assign=True, drop_top_train_ip=False, fit_ip_cap=0):
+    """한 분할을 실행하고 요약 dict를 반환한다. 원본 DB 해시를 전후로 비교한다.
+
+    민감도 실험용 옵션(기준선은 바꾸지 않는다): drop_top_train_ip면 훈련에서 세션이 가장 많은 IP를 뺀다.
+    fit_ip_cap은 cluster.fit의 기존 ip_cap 인자(같은 IP+같은 순서를 최대 N세션까지만 가중)를 그대로 쓴다."""
     from ml.cluster import load_sessions, normalize_session
     data_dir, out_dir = Path(data_dir), Path(out_dir)
     src = data_dir / "ml.db"
@@ -230,11 +248,18 @@ def run_split(data_dir, split, out_dir, with_assign=True):
     train = {k: info[k] for k in train_keys if k in info}
     held = {k: info[k] for k in eval_keys if k in info}
     orig.close()
+    dropped_n = 0
+    if drop_top_train_ip:
+        ip = top_ip(train)
+        dropped_n = sum(1 for v in train.values() if v[1] == ip)
+        train = drop_ip(train, ip)
     result = {"split": split, "spec": SPLITS[split], "overlap": overlap(train, held),
+              "variant": {"drop_top_train_ip": bool(drop_top_train_ip), "fit_ip_cap": fit_ip_cap,
+                          "dropped_train_sessions": dropped_n},
               "source_config": source_config(data_dir), "env": env_record(), "input_sha256": before}
     if with_assign:
         con = build_train_db(src, run / "ml_train.db", train)
-        result["fit_seconds"] = fit_quiet(con, run / "out", run / "models")
+        result["fit_seconds"] = fit_quiet(con, run / "out", run / "models", ip_cap=fit_ip_cap)
         tl = _labels(con)
         add_eval_sessions(con, src, held)
         result["assign_seconds"] = assign_quiet(con, run / "out", run / "models")

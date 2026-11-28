@@ -65,5 +65,21 @@ class PartitionTests(unittest.TestCase):
         self.assertIsNone(splits.top_share(Counter()))
 
 
+class TopIpTests(unittest.TestCase):
+    def test_top_ip_and_drop(self):
+        items = {("s", "1"): (("a",), "1.1.1.1"), ("s", "2"): (("b",), "1.1.1.1"), ("s", "3"): (("c",), "2.2.2.2")}
+        self.assertEqual(splits.top_ip(items), "1.1.1.1")
+        kept = splits.drop_ip(items, "1.1.1.1")
+        self.assertEqual(set(kept), {("s", "3")})
+        self.assertEqual(len(items), 3)  # 원본은 바꾸지 않는다
+
+    def test_top_ip_tie_is_deterministic(self):
+        items = {("s", "1"): (("a",), "9.9.9.9"), ("s", "2"): (("a",), "1.1.1.1")}
+        self.assertEqual(splits.top_ip(items), "1.1.1.1")
+
+    def test_top_ip_empty(self):
+        self.assertIsNone(splits.top_ip({}))
+
+
 if __name__ == "__main__":
     unittest.main()
