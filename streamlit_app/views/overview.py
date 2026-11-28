@@ -182,7 +182,7 @@ with left:
         avg = float(tl.groupby('bucket')['sessions'].sum().mean()) if len(tl) else 0.0
         bars = alt.Chart(tl).mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2).encode(
             x=alt.X('bucket:T', title=None, axis=alt.Axis(format='%H시' if grain == 'h' else '%m-%d', labelAngle=0, grid=False)),
-            y=alt.Y('sessions:Q', title=None, stack=True, axis=alt.Axis(domain=False, ticks=False, format='~s')),
+            y=alt.Y('sessions:Q', title=None, stack=True, axis=alt.Axis(domain=False, ticks=False, format=',.0f')),
             color=alt.Color('group:N', title=None, scale=alt.Scale(domain=groups_, range=[palette[p] for p in groups_]),
                             legend=alt.Legend(orient='top', labelExpr='upper(datum.label)' if by == 'protocol' else 'datum.label')),
             tooltip=[alt.Tooltip('bucket:T', title='시각', format='%m-%d %H:00' if grain == 'h' else '%m-%d'),

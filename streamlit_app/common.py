@@ -396,19 +396,22 @@ def dtfmt(series, fmt='%m-%d %H:%M'):
 
 
 def bar_list(rows, note=None):
-    """폭에 맞춰 줄어드는 순위 막대 (HTML). rows: [(라벨, 값, 표시 문자열, 색)].
-    라벨은 넘치면 말줄임하고 마우스를 올리면 전체를 보여 준다. 숫자는 항상 오른쪽 끝에 고정.
+    """순위 막대 (HTML). rows: [(라벨, 값, 표시 문자열, 색)].
+    라벨을 막대 위에 한 줄로 전부 보여 주고(길면 줄바꿈), 숫자는 오른쪽 끝에 맞춘다.
     라벨에 공격자 문자열(계정 등)이 올 수 있으므로 모두 escape한다."""
     if not rows:
         return
     top = max((v for _, v, _, _ in rows), default=0) or 1
-    html = ['<div class="hp-bars">']
+    html = []
     for label, v, text, color in rows:
         w = max(1.5, v / top * 100) if v else 0
-        html.append(f'<div class="r"><div class="l" title="{escape(str(label))}">{escape(str(label))}</div>'
-                    f'<div class="t"><div class="f" style="width:{w:.1f}%;background:{color}"></div></div>'
-                    f'<div class="v">{escape(str(text))}</div></div>')
-    html.append('</div>')
+        html.append(
+            '<div style="margin:.5rem 0"><div style="display:flex;justify-content:space-between;gap:.6rem;font-size:.92rem;'
+            f'color:var(--ink);line-height:1.35"><span style="flex:1;min-width:0;overflow-wrap:anywhere" title="{escape(str(label))}">'
+            f'{escape(str(label))}</span><b style="font-family:var(--font-mono);color:var(--ink-2);white-space:nowrap;'
+            f'min-width:4ch;text-align:right">{escape(str(text))}</b></div>'
+            '<div style="height:7px;background:var(--line);border-radius:4px;margin-top:.25rem">'
+            f'<div style="width:{w:.1f}%;height:100%;background:{color};border-radius:4px"></div></div></div>')
     if note:
         html.append(f'<div class="hp-bars-note">{escape(note)}</div>')
     st.markdown(''.join(html), unsafe_allow_html=True)

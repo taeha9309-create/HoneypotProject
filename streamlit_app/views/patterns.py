@@ -82,6 +82,13 @@ palette = ['#38d6e8', '#f0995a', '#a48bf5', '#a9dc6c', '#e77fb3', '#f2b84b', '#5
 big = cp[cp['cluster_id'] >= 0].head(len(palette))
 color_of = {r.label: palette[i] for i, r in enumerate(big.itertuples())}
 
+def _dom(col):
+    """군집 지도 축 범위: 멀리 떨어진 소수 점 때문에 대부분의 점이 한쪽에 뭉치지 않도록 2~98% 분위로 잡는다(밖의 점은 가장자리에 붙는다)."""
+    if not len(col):
+        return alt.Undefined
+    return [float(col.quantile(.02)), float(col.quantile(.98))]
+
+
 left, right = st.columns([1, 1.25])
 with left:
     with C.card('군집 지도', help='점 하나 = 정규화한 명령 흐름 하나, 크기 = 세션 수. 가까운 점일수록 명령 흐름이 비슷합니다. '
@@ -94,12 +101,17 @@ with left:
         pts['preview'] = pts['preview'].map(lambda t: D.defang(t, 160))
         domain = list(color_of) + ['기타·노이즈']
         C.chart(alt.Chart(pts).mark_circle(opacity=0.85, stroke='#10151b', strokeWidth=0.6).encode(
-            x=alt.X('x:Q', title=None, axis=None), y=alt.Y('y:Q', title=None, axis=None),
+            x=alt.X('x:Q', title=None, axis=None, scale=alt.Scale(domain=_dom(pts['x']), clamp=True, nice=False)),
+            y=alt.Y('y:Q', title=None, axis=None, scale=alt.Scale(domain=_dom(pts['y']), clamp=True, nice=False)),
             size=alt.Size('in_scope:Q', legend=None, scale=alt.Scale(type='sqrt', range=[25, 1400])),
             color=alt.Color('group:N', title=None, scale=alt.Scale(domain=domain, range=list(color_of.values()) + ['#475260']),
                             legend=alt.Legend(orient='bottom', columns=3, labelLimit=160)),
             tooltip=[alt.Tooltip('label:N', title='군집'), alt.Tooltip('in_scope:Q', title='세션', format=','),
-                     alt.Tooltip('preview:N', title='명령 흐름')]).properties(height=330))
+                     alt.Tooltip('preview:N', title='명령 흐름')]).properties(height=420))
+        st.markdown('<div class="hp-title" style="margin:.7rem 0 .1rem 0">군집 크기 상위 (지도의 색과 같음)</div>', unsafe_allow_html=True)
+        C.bar_list([(f'{r.label} · {r.plain}', r.sessions, f'{r.sessions:,}', color_of.get(r.label, '#475260'))
+                    for r in big.head(8).itertuples()],
+                   note='세션 수. 이름은 입력을 보고 붙인 추정입니다.')
 with right:
     with C.card(f'군집 목록 · {proto.upper()}', help='세션 수 순. 이름은 대표 명령의 표식(busybox 이름, 숨김 파일 등)과 군집 세션 절반 '
                                                     '이상에서 관측된 공격 단계로 자동으로 붙였습니다. 행을 누르면 아래에 상세가 나옵니다.'):
@@ -148,7 +160,7 @@ with C.card(f"{picked['label']} · {picked['name']}"):
         groups_ = [n for n in C.SOURCE_COLORS if n in set(dd['name'])]
         C.chart(alt.Chart(dd).mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2).encode(
             x=alt.X('day:T', title=None, axis=alt.Axis(format='%m-%d', labelAngle=0, grid=False, labelFontSize=10)),
-            y=alt.Y('sessions:Q', title=None, stack=True, axis=alt.Axis(domain=False, ticks=False, format='~s', tickCount=3)),
+            y=alt.Y('sessions:Q', title=None, stack=True, axis=alt.Axis(domain=False, ticks=False, format=',.0f', tickCount=3)),
             color=alt.Color('name:N', title=None, scale=alt.Scale(domain=groups_, range=[C.SOURCE_COLORS[n] for n in groups_]),
                             legend=alt.Legend(orient='top')),
             tooltip=[alt.Tooltip('day:T', title='날짜', format='%m-%d'), alt.Tooltip('name:N', title='허니팟'),

@@ -138,7 +138,7 @@ def show_ip(ip):
         names_ = [n for n in C.SOURCE_COLORS if n in set(daily['source'])]
         C.chart(alt.Chart(daily).mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2).encode(
             x=alt.X('day:T', title=None, axis=alt.Axis(format='%m-%d', labelAngle=0, grid=False)),
-            y=alt.Y('sessions:Q', title=None, stack=True, axis=alt.Axis(domain=False, ticks=False, format='~s')),
+            y=alt.Y('sessions:Q', title=None, stack=True, axis=alt.Axis(domain=False, ticks=False, format=',.0f')),
             color=alt.Color('source:N', title=None, legend=alt.Legend(orient='right'),
                             scale=alt.Scale(domain=names_, range=[C.SOURCE_COLORS[n] for n in names_])),
             tooltip=[alt.Tooltip('day:T', title='날짜', format='%m-%d'), alt.Tooltip('source:N', title='허니팟'),

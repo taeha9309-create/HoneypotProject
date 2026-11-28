@@ -74,14 +74,14 @@ with C.card('DETECTION SUMMARY', help='분모는 조회 범위에서 명령을 �
             C.kpi(lab, val, color, sub)
 
 # ---------------------------------------------------------------- ② 진행 단계 + 행동 목록
-left, right = st.columns([1, 1.9])
+left, right = st.columns([1.3, 1.6])
 with left:
     with C.card('진행 단계', help='세션별로 가장 깊이 간 단계를 구해 각 단계 "이상"까지 간 세션 수를 셌습니다. '
                                  + ' / '.join(f'{n}: {d}' for _, n, d in X.FUNNEL)):
         fn['text'] = fn.apply(lambda r: f"{r['sessions']:,} · {r['percent']:.0f}%", axis=1)
         fn['color'] = [C.CYAN, '#5b8def', C.AMBER, C.ORANGE, C.RED]
         base = alt.Chart(fn).encode(
-            y=alt.Y('name:N', sort=list(fn['name']), title=None, axis=alt.Axis(labelLimit=140, domain=False, ticks=False)),
+            y=alt.Y('name:N', sort=list(fn['name']), title=None, axis=alt.Axis(labelLimit=170, domain=False, ticks=False, labelFontSize=13)),
             x=alt.X('sessions:Q', title=None, axis=None, scale=alt.Scale(domain=[0, pop * 1.55], nice=False)),
             tooltip=[alt.Tooltip('name:N', title='단계'), alt.Tooltip('desc:N', title='뜻'),
                      alt.Tooltip('sessions:Q', title='세션', format=','),
@@ -89,14 +89,14 @@ with left:
         C.chart((base.mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3, height={'band': 0.6})
                  .encode(color=alt.Color('color:N', scale=None))
                  + base.mark_text(align='left', dx=5, fontSize=11, color='#b4bfca').encode(text='text:N'))
-                .properties(height=32 * len(fn)))
+                .properties(height=42 * len(fn)))
         daily = X.step_daily(sc, rules, exclude_steps=('shell', 'recon'))
         if not daily.empty:
             per_day = daily.groupby('day')['sessions'].sum().reset_index()
             st.caption('일별 · 파일 들여오기 이상 단계가 탐지된 세션')
             C.chart(alt.Chart(per_day).mark_bar(color=C.ORANGE, cornerRadiusTopLeft=2, cornerRadiusTopRight=2).encode(
                 x=alt.X('day:T', title=None, axis=alt.Axis(format='%m-%d', labelAngle=0, grid=False, labelFontSize=10)),
-                y=alt.Y('sessions:Q', title=None, axis=alt.Axis(domain=False, ticks=False, format='~s', tickCount=3)),
+                y=alt.Y('sessions:Q', title=None, axis=alt.Axis(domain=False, ticks=False, format=',.0f', tickCount=3)),
                 tooltip=[alt.Tooltip('day:T', title='날짜', format='%m-%d'),
                          alt.Tooltip('sessions:Q', title='세션', format=',')]).properties(height=110))
         # 최근 위험도 높음 세션 (옆 목록과 높이를 맞추면서 바로 조사할 대상을 보여 준다)

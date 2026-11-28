@@ -74,22 +74,6 @@ def land():
     return G.land_rings(C.world())
 
 
-def ranked(rows, note=None):
-    """이름을 막대 위에 한 줄로 전부 보여 주는 순위 목록. rows: [(이름, 값, 표시 문자열, 색)]. 모든 문자열 escape."""
-    top = max((r[1] for r in rows), default=1) or 1
-    html = ''.join(
-        f'<div style="margin:.55rem 0"><div style="display:flex;justify-content:space-between;gap:.6rem;font-size:.92rem;'
-        f'color:var(--ink);line-height:1.35"><span style="flex:1;min-width:0">{escape(str(name))}</span>'
-        f'<b style="font-family:var(--font-mono);color:var(--ink-2);white-space:nowrap;min-width:4ch;text-align:right">{escape(str(shown))}</b>'
-        f'</div>'
-        f'<div style="height:7px;background:var(--line);border-radius:4px;margin-top:.25rem"><div style="width:{max(v / top * 100, 2):.1f}%;'
-        f'height:100%;background:{color};border-radius:4px"></div></div></div>'
-        for name, v, shown, color in rows)
-    if note:
-        html += f'<div class="hp-bars-note">{escape(note)}</div>'
-    st.markdown(html, unsafe_allow_html=True)
-
-
 b = board(version, f)
 br = b['brief']
 k, prev = D.kpis(sc), D.compare(ds, f)
@@ -161,7 +145,7 @@ with right:
             # 같은 쉬운 이름이 여러 군집에 걸치면 합쳐서 보여 준다 (세션 수 합, 위험도는 가장 높은 것)
             g = (real.groupby('plain').agg(sessions=('sessions', 'sum'), n=('cluster_id', 'size'), danger=('danger', 'max'))
                  .sort_values('sessions', ascending=False).head(5).reset_index())
-            ranked([(r.plain + (f' ({r.n}개 군집)' if r.n > 1 else ''), r.sessions, f'{r.sessions:,}',
+            C.bar_list([(r.plain + (f' ({r.n}개 군집)' if r.n > 1 else ''), r.sessions, f'{r.sessions:,}',
                          C.RED if r.danger >= 3 else (C.AMBER if r.danger == 2 else C.CYAN)) for r in g.itertuples()],
                        note='세션 수. 빨강=위험도 높은 행동 포함 · 노랑=중간. 이름은 입력을 보고 붙인 추정입니다. 군집 번호·근거는 패턴 분석(ML)')
     dt = b['danger']
@@ -170,7 +154,7 @@ with right:
         if dt.empty:
             st.caption('이 범위에서 관측된 위험 행동이 없습니다.')
         else:
-            ranked([(r.plain, r.sessions, f'{r.sessions:,}', X.DANGER_COLORS[r.danger]) for r in dt.itertuples()],
+            C.bar_list([(r.plain, r.sessions, f'{r.sessions:,}', X.DANGER_COLORS[r.danger]) for r in dt.itertuples()],
                        note='세션 수 · 빨강=높음 · 노랑=중간 · 회색=낮음')
     with C.card(f"새로 나타난 것 · {br['label']}", help='그 기간 전까지의 보유 데이터에 없던 항목만 셉니다.'):
         rows = [('새 다운로드 서버', len(br['new_servers']), C.ORANGE), ('새 파일 해시', len(br['new_hashes']), C.LIME),
@@ -323,7 +307,7 @@ with c2:
         else:
             st.markdown(f'<div class="hp-sent">로그인 시도 <b>{au["total"]:,}건</b> 중 성공은 {au["success"]:,}건입니다.</div>',
                         unsafe_allow_html=True)
-            ranked([(v, n, f'{n:,}', C.PINK) for v, n in zip(au['passwords']['value'], au['passwords']['count'])],
+            C.bar_list([(v, n, f'{n:,}', C.PINK) for v, n in zip(au['passwords']['value'], au['passwords']['count'])],
                    note='많이 시도된 순')
 
 st.caption('탐지는 허니팟에 입력된 명령을 보고 판단한 것이며, 실제로 실행에 성공했는지는 확인하지 않았습니다. 국가는 IP 기반 추정입니다.')
