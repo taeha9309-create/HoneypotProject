@@ -13,11 +13,13 @@ import sys
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import auth  # noqa: E402
 import common as C  # noqa: E402
 import data as D  # noqa: E402
 
 st.set_page_config(page_title='허니팟 대시보드', layout='wide', page_icon=':material/shield:')
 C.inject_css()
+auth.gate()  # 비밀번호가 설정돼 있으면(HONEYPOT_DASH_PASSWORD) 통과 전에는 아래 코드가 실행되지 않는다
 
 try:
     ds = C.dataset()
