@@ -15,6 +15,8 @@ from ml.analysis.eval_rule_removal import DEV_END
 
 
 def approved_version(candidate, baseline, version):
+    if candidate.get("format") == "redacted_sequence_v1":
+        raise ValueError("redacted label drafts require a separately validated operational rule before export")
     if candidate["status"] != "approved":
         raise ValueError("only approved candidates may be exported")
     if not re.fullmatch(r"v[0-9]{3,}", version):
