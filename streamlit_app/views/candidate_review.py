@@ -8,7 +8,8 @@ import pandas as pd
 import streamlit as st
 
 import common as C
-from ml.analysis import signature_validation
+import review_decision
+from ml.analysis import signature_validation, proposal_registry
 
 REVIEW_DIR = C.ROOT / 'work' / 'advancement' / 'T7a'
 STATUS = {'proposed': '검토 대기', 'approved': '승인됨', 'rejected': '거부됨'}
@@ -25,7 +26,7 @@ def percentage(value):
     return '—' if value is None else f'{value:.2%}'
 
 
-C.page_header('후보 검토', '개발 검증 · 읽기 전용',
+C.page_header('후보 검토', '개발 검증 · 관리자 검토',
               '후보 상태, 일치 세션, 규칙 추가 전후 지표를 확인합니다.')
 def show_review_groups():
     path = C.DATA_DIR / 'signature_review_groups.json'
@@ -133,6 +134,39 @@ def show_review_groups():
 
 
 show_review_groups()
+
+def show_saved_candidates():
+    st.subheader('저장된 검토 후보')
+    try:
+        saved = proposal_registry.load(proposal_registry.DEFAULT_REGISTRY)
+    except (OSError, sqlite3.Error, ValueError):
+        st.warning('저장된 후보 이력을 읽을 수 없습니다.')
+        return
+    if not saved:
+        st.info('검사한 초안을 저장하면 여기에 검토 대기 후보가 표시됩니다.')
+        return
+    index = st.selectbox('저장된 후보', range(len(saved)),
+                         format_func=lambda i: f"{saved[i]['protocol'].upper()} · {saved[i]['name']}")
+    item = saved[index]
+    st.text(f"상태 · {STATUS.get(item['status'], item['status'])}")
+    if item['reviewer']:
+        st.text(f"{item['reviewer']} · {item['decided_utc']} · {item['reason']}")
+    st.code(item['id'], language=None)
+    st.caption('검토 명령에서 사용하는 후보 ID입니다.')
+    history = item['discoveries']
+    st.dataframe(pd.DataFrame([{
+        '갱신 시각 (UTC)': h['identity']['built_at_utc'],
+        '군집': h['evidence']['cluster_id'],
+        '전체 일치': h['evidence']['validation']['all']['matches'],
+        '군집 밖 일치': h['evidence']['validation']['outside_cluster']['matches'],
+        'B19 단독 적중 세분화': h['evidence']['validation']['all']['b19_only_refined'],
+    } for h in history]), hide_index=True, width='stretch')
+    review_decision.render(item, proposal_registry.DEFAULT_REGISTRY)
+    st.download_button('후보와 발견 이력 JSON', json.dumps(item,ensure_ascii=False,indent=2),
+                       file_name=f"{item['id']}.json",mime='application/json')
+
+
+show_saved_candidates()
 
 try:
     entries = {row[0]: row for row in candidates(REVIEW_DIR)
