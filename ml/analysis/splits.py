@@ -142,7 +142,7 @@ def env_record():
 # ---------------------------------------------------------------- DB 작업 (사본에서만)
 
 def ro(path):
-    return sqlite3.connect("file:" + Path(path).as_posix() + "?mode=ro", uri=True)
+    return sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
 
 
 def _session_rows(con):
