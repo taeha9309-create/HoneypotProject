@@ -81,6 +81,7 @@ pages = {'home': st.Page(str(here / 'home.py'), title='홈', icon=':material/hom
          'detail': st.Page(str(here / 'investigate.py'), title='세션 조사', icon=':material/manage_search:'),
          'detection': st.Page(str(here / 'detection.py'), title='탐지 분석', icon=':material/policy:'),
          'patterns': st.Page(str(here / 'patterns.py'), title='패턴 분석 (ML)', icon=':material/hub:'),
+         'candidate_review': st.Page(str(here / 'candidate_review.py'), title='?? ??', icon=':material/rule:'),
          'intel': st.Page(str(here / 'intel.py'), title='위협 정보 (IOC)', icon=':material/block:')}
 st.session_state['pages'] = pages
 st.navigation(list(pages.values())).run()

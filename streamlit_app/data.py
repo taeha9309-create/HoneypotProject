@@ -124,7 +124,7 @@ def _kst(series):
     return pd.to_datetime(series, utc=True, format='ISO8601').dt.tz_convert(KST)
 
 
-def load(data_dir, rules):
+def load(data_dir, rules, *, rules_sha256=None):
     data_dir = Path(data_dir)
     side = data_dir / 'dashboard.db'
     if not side.exists():
@@ -138,6 +138,12 @@ def load(data_dir, rules):
         log_hours, geo = read('SELECT * FROM log_hours'), read('SELECT * FROM geo')
         meta = dict(con.execute('SELECT key, value FROM meta').fetchall())
     frames, warnings = defaultdict(list), []
+    if rules_sha256 is not None:
+        built_rules_sha256 = meta.get('rules_sha256')
+        if not built_rules_sha256:
+            warnings.append('이 데이터에는 탐지 규칙 버전 기록이 없습니다. 갱신 후 확인하세요.')
+        elif built_rules_sha256 != rules_sha256:
+            warnings.append('현재 규칙과 표시 중인 탐지 결과의 규칙이 다릅니다. 탐지 결과를 갱신하세요.')
     for row in sources.itertuples():
         path = data_dir / row.db
         if not path.exists():

@@ -83,6 +83,12 @@ class DashboardBuildAndDataTests(unittest.TestCase):
     def test_inputs_untouched(self):
         self.assertEqual({p: sha256(p.read_bytes()).hexdigest() for p in self.before}, self.before)
 
+    def test_warns_when_displayed_hits_use_different_rules(self):
+        actual = sha256((ROOT / 'signatures/rules.yaml').read_bytes()).hexdigest()
+        self.assertEqual(D.load(self.out, self.rules, rules_sha256=actual).warnings, [])
+        stale = D.load(self.out, self.rules, rules_sha256='0' * 64)
+        self.assertTrue(any('탐지 결과를 갱신하세요' in message for message in stale.warnings))
+
     def test_build_contents(self):
         with closing(sqlite3.connect(self.out / 'dashboard.db')) as con:
             logins = con.execute('SELECT session_id, success FROM login_events ORDER BY ts').fetchall()

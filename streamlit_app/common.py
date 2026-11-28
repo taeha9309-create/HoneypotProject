@@ -1,5 +1,6 @@
 """두 페이지가 같이 쓰는 설정, 데이터 적재, 표시 도우미."""
 import argparse
+from hashlib import sha256
 from html import escape
 import json
 import math
@@ -63,7 +64,9 @@ def _version():
 
 @st.cache_resource(show_spinner='데이터 불러오는 중…')
 def _dataset(data_dir, rules_path, version):
-    return D.load(data_dir, load_rules(rules_path))
+    rules = load_rules(rules_path)
+    rules_sha256 = sha256(Path(rules_path).read_bytes()).hexdigest()
+    return D.load(data_dir, rules, rules_sha256=rules_sha256)
 
 
 def dataset():
