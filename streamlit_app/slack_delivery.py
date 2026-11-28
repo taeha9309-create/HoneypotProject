@@ -72,7 +72,7 @@ def initialize(con):
     con.execute("COMMIT")
 
 
-def enqueue(con, scope, snapshot):
+def enqueue(con, scope, snapshot, candidate_items=()):
     con.execute("BEGIN IMMEDIATE")
     prior = con.execute("SELECT revision, day, level FROM observed WHERE scope=?", (scope,)).fetchone()
     day = snapshot.day.isoformat()
@@ -81,6 +81,9 @@ def enqueue(con, scope, snapshot):
         key = ("daily/" + day) if item["kind"] == "daily" else ("risk/" + revision)
         con.execute("""INSERT OR IGNORE INTO outbox VALUES (?, ?, ?, ?, ?, 'queued')""",
                     (scope, key, revision, item["kind"], item["text"]))
+    for item in candidate_items:
+        con.execute("INSERT OR IGNORE INTO outbox VALUES (?, ?, ?, ?, ?, 'queued')",
+                    (scope, item["event_key"], revision, item["kind"], item["text"]))
     if prior is None or (snapshot.revision > datetime.fromisoformat(prior[0]) and day >= prior[1]):
         con.execute("INSERT OR REPLACE INTO observed VALUES (?, ?, ?, ?)",
                     (scope, revision, day, snapshot.level))
@@ -99,7 +102,7 @@ def claim(con, scope):
     return row
 
 
-def deliver(snapshot, state_path, destination, transport):
+def deliver(snapshot, state_path, destination, transport, candidate_items=()):
     if not DESTINATION.fullmatch(destination):
         raise ValueError("destination must be a short ASCII name for the Slack channel")
     scope = json.dumps([destination, snapshot.scope], ensure_ascii=True)
@@ -107,7 +110,7 @@ def deliver(snapshot, state_path, destination, transport):
     sent = 0
     with closing(sqlite3.connect(state_path, isolation_level=None)) as con:
         initialize(con)
-        enqueue(con, scope, snapshot)
+        enqueue(con, scope, snapshot, candidate_items)
         while (item := claim(con, scope)) is not None:
             key, message = item
             try:
@@ -134,10 +137,16 @@ def prepare_destination(data_dir, rules, state, destination, webhook):
     return path, destination, webhook_url(webhook)
 
 
-def send_snapshot(data_dir, rules, destination):
+def send_snapshot(data_dir, rules, destination, include_candidates=False):
     path, name, endpoint = destination
     snapshot = slack_preview.read_snapshot(data_dir, rules)
-    return deliver(snapshot, path, name, lambda text: post(endpoint, text))
+    items = []
+    if include_candidates:
+        from streamlit_app import candidate_alerts
+        from ml.analysis import proposal_registry
+
+        items = candidate_alerts.messages(proposal_registry.DEFAULT_REGISTRY)
+    return deliver(snapshot, path, name, lambda text: post(endpoint, text), items)
 
 
 def print_delivery_summary(sent, uncertain):
@@ -150,6 +159,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--rules", type=Path, default=Path("signatures/rules.yaml"))
+    parser.add_argument("--include-candidates", action="store_true", help="include pending candidate review alerts")
     parser.add_argument("--send", action="store_true", help="actually post to the configured Slack channel")
     parser.add_argument("--state", type=Path, help="dedicated SQLite state for live delivery")
     parser.add_argument("--destination", help="stable local name of the Slack destination")
@@ -157,11 +167,17 @@ def main():
     try:
         if not args.send:
             snapshot = slack_preview.read_snapshot(args.data_dir, args.rules)
-            slack_preview.print_preview(slack_preview.preview(snapshot))
+            messages = slack_preview.preview(snapshot)
+            if args.include_candidates:
+                from streamlit_app import candidate_alerts
+                from ml.analysis import proposal_registry
+
+                messages += candidate_alerts.messages(proposal_registry.DEFAULT_REGISTRY)
+            slack_preview.print_preview(messages)
             return
         destination = prepare_destination(args.data_dir, args.rules, args.state, args.destination,
                                           os.environ.get("HONEYPOT_SLACK_WEBHOOK"))
-        sent, uncertain = send_snapshot(args.data_dir, args.rules, destination)
+        sent, uncertain = send_snapshot(args.data_dir, args.rules, destination, args.include_candidates)
     except (DeliveryError, ValueError, OSError, sqlite3.Error) as error:
         parser.exit(1, f"Slack 전송을 완료하지 못했습니다. {error}\n")
     print_delivery_summary(sent, uncertain)

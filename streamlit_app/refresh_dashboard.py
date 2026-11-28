@@ -9,7 +9,7 @@ import sqlite3
 import sys
 from tempfile import TemporaryDirectory
 
-from ml.analysis import signature_review_groups, signature_validation
+from ml.analysis import signature_review_groups, signature_validation, proposal_registry
 from streamlit_app import build_db, build_ml
 
 
@@ -130,10 +130,13 @@ def main():
     slack_mode = parser.add_mutually_exclusive_group()
     slack_mode.add_argument("--slack-preview", action="store_true", help="print a local Slack preview without sending")
     slack_mode.add_argument("--slack-send", action="store_true", help="send to the configured Slack channel after validation")
+    parser.add_argument("--slack-candidates", action="store_true", help="include pending candidate alerts in Slack output")
     parser.add_argument("--slack-state", type=Path, help="dedicated delivery state file")
     parser.add_argument("--slack-destination", help="stable local name of the Slack destination")
     parser.add_argument("--rules", type=Path, default=build_db.ROOT / "signatures/rules.yaml")
     args = parser.parse_args()
+    if args.slack_candidates and not (args.slack_send or args.slack_preview):
+        parser.error("--slack-candidates requires --slack-send or --slack-preview")
     if args.slack_send:
         from streamlit_app import slack_delivery
 
@@ -151,6 +154,12 @@ def main():
         result = refresh(args.out, args.seoul_logs, args.syd_db, args.geo, args.rules)
     except (ValueError, OSError, sqlite3.Error) as error:
         parser.exit(1, f"갱신에 실패했습니다. 기존 대시보드는 계속 사용할 수 있습니다.\n{error}\n")
+    try:
+        report = json.loads((args.out / signature_validation.REPORT_NAME).read_text(encoding="utf-8"))
+        registered = proposal_registry.register_report(proposal_registry.DEFAULT_REGISTRY, report)
+    except (ValueError, OSError, sqlite3.Error) as error:
+        parser.exit(3, f"갱신본은 준비됐지만 후보 저장이 완료되지 않았습니다: {error}\n")
+    print(f"검토 후보 저장 {registered}개")
     print(f"갱신본 준비 완료: {args.out.resolve()}")
     print(f"시그니처 검토 대상 군집: {result['signature_review_groups']}개 · "f"서로 다른 검사 초안 {result['signature_review_drafts']}개")
     for source, item in result["sources"].items():
@@ -160,7 +169,7 @@ def main():
     folder = str(args.out.resolve()).replace("'", "''")
     if args.slack_send:
         try:
-            slack_delivery.print_delivery_summary(*slack_delivery.send_snapshot(args.out, args.rules, destination))
+            slack_delivery.print_delivery_summary(*slack_delivery.send_snapshot(args.out, args.rules, destination, args.slack_candidates))
         except (slack_delivery.DeliveryError, ValueError, OSError, sqlite3.Error) as error:
             parser.exit(2, f"갱신본은 준비됐지만 Slack 전송을 완료하지 못했습니다: {error}\n"
                         "갱신본을 다시 만들 필요 없이 slack_delivery에서 확인하세요.\n")
@@ -169,7 +178,12 @@ def main():
 
         try:
             snapshot = slack_preview.read_snapshot(args.out, args.rules)
-            slack_preview.print_preview(slack_preview.preview(snapshot))
+            messages = slack_preview.preview(snapshot)
+            if args.slack_candidates:
+                from streamlit_app import candidate_alerts
+
+                messages += candidate_alerts.messages(proposal_registry.DEFAULT_REGISTRY)
+            slack_preview.print_preview(messages)
         except (ValueError, OSError, sqlite3.Error) as error:
             print(f"갱신본은 준비됐지만 Slack 미리보기를 만들지 못했습니다: {error}", file=sys.stderr)
     rules_path = str(args.rules.resolve()).replace("'", "''")
