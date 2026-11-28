@@ -51,6 +51,9 @@ UNIQUE_SIZES = (5, 10, 20)  # 비교용: 고유 시퀀스 단위 HDBSCAN
 DBSCAN_EPS = (0.1, 0.2, 0.3, 0.5)
 OUTLIER_QUANTILE = 0.95  # 신규 패턴 후보: 프로토콜별 이상 점수 상위 5%
 RECENT_DAYS = 7  # 신규 패턴 후보: 데이터의 마지막 시각 기준 최근 7일 안에 처음 나온 군집
+# assign: DB의 마지막 이벤트 시각 기준 이 시간 안에 끝난 세션은 아직 진행 중일 수 있어 다음 실행으로 미룬다.
+# (한 번 배정한 세션은 다시 배정하지 않으므로, 명령이 덜 들어온 상태로 굳지 않게 한다)
+SETTLE_MINUTES = 10
 
 SCHEMA = """
 DROP TABLE IF EXISTS ml_clusters;
@@ -60,7 +63,7 @@ CREATE TABLE ml_clusters (
     protocol      TEXT NOT NULL,
     model         TEXT NOT NULL,
     params        TEXT NOT NULL,
-    cluster_id    INTEGER NOT NULL, -- 학습 때 크기 순 번호(0이 가장 큼), 노이즈는 -1
+    cluster_id    INTEGER NOT NULL, -- 처음 fit은 크기 순(0이 가장 큼), 다시 fit하면 이전 번호를 이어 받음. 노이즈는 -1
     is_noise      INTEGER NOT NULL,
     outlier_score REAL,             -- 가장 가까운 군집 중심까지 코사인 거리 0~2 (클수록 이상)
     probability   REAL,             -- 군집 소속 강도
@@ -205,6 +208,26 @@ def size_order(labels, weights):
     return order
 
 
+def carry_ids(new, old):
+    """다시 fit할 때 군집 번호를 이어 준다.
+
+    new, old: {세션 키: cluster_id}. 새 군집마다 세션이 가장 많이 겹치는 이전 군집 번호를 준다
+    (겹침이 큰 쌍부터 하나씩, 이전 번호는 한 번만). 짝이 없는 새 군집은 이전에 쓴 적 없는 번호를 받는다.
+    {새 번호: 최종 번호}를 돌려준다. -1(노이즈)은 그대로.
+    """
+    overlap = Counter((n, old[k]) for k, n in new.items() if n != -1 and old.get(k, -1) != -1)
+    mapping, used = {-1: -1}, set()
+    for (n, o), _ in sorted(overlap.items(), key=lambda x: (-x[1], x[0])):
+        if n not in mapping and o not in used:
+            mapping[n] = o
+            used.add(o)
+    next_id = max(set(old.values()) | used | {-1}) + 1
+    for n in sorted(set(new.values()) - set(mapping)):
+        mapping[n] = next_id
+        next_id += 1
+    return mapping
+
+
 def centroid_distance(Z, centroids):
     """이상 점수: 가장 가까운 군집 중심까지 코사인 거리(0~2).
     같은 시퀀스가 반복되는 봇 데이터에서는 HDBSCAN GLOSH가 0/NaN이 돼서 이것을 쓴다."""
@@ -265,6 +288,10 @@ def fit(con, out_dir, models_dir, mcs=None, ms=None, max_copies=MAX_COPIES, ip_c
         ms = ms or mcs
     else:
         mcs, ms, reason = FINAL_MCS, FINAL_MS, FINAL_REASON
+    previous = defaultdict(dict)  # protocol -> {세션 키: 이전 cluster_id}, 번호를 이어 주는 데 쓴다
+    if con.execute("SELECT 1 FROM sqlite_master WHERE name = 'ml_clusters'").fetchone():
+        for src, sid, proto, c in con.execute("SELECT source, session_id, protocol, cluster_id FROM ml_clusters"):
+            previous[proto][(src, sid)] = c
     con.executescript(SCHEMA)
     sessions = load_sessions(con)
     n_null = sum(s["protocol"] is None for s in sessions.values())
@@ -304,10 +331,16 @@ def fit(con, out_dir, models_dir, mcs=None, ms=None, max_copies=MAX_COPIES, ip_c
             print(f"  {params}에서 군집이 2개 미만이라 모델을 저장하지 않는다")
             continue
         order = size_order(raw, weights)
+        if previous[proto]:
+            by_size = {k: order[int(raw[index[norm[k]]])] for k in keys}
+            ids = carry_ids(by_size, previous[proto])
+            order = {r: ids[o] for r, o in order.items()}
+            kept = sum(1 for o, f in ids.items() if o != -1 and f in set(previous[proto].values()))
+            print(f"  군집 번호: 이전 번호 이어 받음 {kept}개 / 새 번호 {len(ids) - 1 - kept}개")
         labels = np.array([order[int(lab)] for lab in raw])
         w = np.asarray(weights)
         centroids = l2_normalize(np.array([np.average(Z[labels == c], axis=0, weights=w[labels == c])
-                                           for c in range(len(set(labels) - {-1}))]))
+                                           for c in sorted(set(labels) - {-1})]))
         scores = centroid_distance(Z, centroids)
         probs = clf.probabilities_[first]
         joblib.dump({
@@ -373,19 +406,28 @@ def write_comparison(out_dir, tables, notes, trained_at, max_copies, ip_cap):
 
 # ---------------------------------------------------------------- assign
 
-def assign(con, out_dir, models_dir):
+def assign(con, out_dir, models_dir, settle_minutes=SETTLE_MINUTES):
+    """새 세션을 저장된 모델로 배정하고 실행 통계 dict를 돌려준다."""
     if not con.execute("SELECT 1 FROM sqlite_master WHERE name = 'ml_clusters'").fetchone():
         sys.exit("ml_clusters가 없다. fit을 먼저 돌려야 한다")
     done = set(con.execute("SELECT source, session_id FROM ml_clusters"))
     sessions = load_sessions(con)
+    end_ts = {(s, sid): e for s, sid, e in con.execute("SELECT source, session_id, end_ts FROM sessions")}
+    latest = max((parse_ts(e) for e in end_ts.values() if e), default=None)
+    settled_before = latest - timedelta(minutes=settle_minutes) if latest else None
     assigned_at = now_iso()
+    stats = Counter()
     for proto in PROTOCOLS:
-        keys = [k for k, s in sessions.items() if s["protocol"] == proto and k not in done]
+        new = [k for k, s in sessions.items() if s["protocol"] == proto and k not in done]
+        keys = [k for k in new if parse_ts(end_ts[k]) <= settled_before]
+        stats["new_sessions"] += len(new)
+        stats["pending"] += len(new) - len(keys)
         if not keys:
-            print(f"[{proto}] 새 세션 없음")
+            print(f"[{proto}] 배정할 새 세션 없음 (진행 중일 수 있어 미룸 {len(new) - len(keys):,}개)")
             continue
         path = Path(models_dir) / f"{proto}.joblib"
         if not path.exists():
+            stats["no_model"] += len(keys)
             print(f"[{proto}] 모델 없음({path}), 새 세션 {len(keys):,}개 건너뜀")
             continue
         m = joblib.load(path)
@@ -403,8 +445,15 @@ def assign(con, out_dir, models_dir):
                  for k, lab, sc, p in zip(keys, labels, scores, probs)],
             )
         n_noise = sum(lab == -1 for lab in labels)
-        print(f"[{proto}] 새 세션 {len(keys):,}개 배정 (노이즈 {n_noise:,}), 모델 학습 시각 {m['trained_at']}")
-    write_outputs(con, out_dir)
+        stats["assigned"] += len(keys) - n_noise
+        stats["noise"] += n_noise
+        print(f"[{proto}] 새 세션 {len(keys):,}개 배정 (노이즈 {n_noise:,}, 미룸 {len(new) - len(keys):,}), "
+              f"모델 학습 시각 {m['trained_at']}")
+    novel = write_outputs(con, out_dir)
+    stats["novel_candidates"] = len(novel)
+    stats["novel_sessions"] = sum(r["n_sessions"] for r in novel)
+    return {k: stats[k] for k in ("new_sessions", "assigned", "noise", "pending", "no_model",
+                                  "novel_candidates", "novel_sessions")}
 
 
 # ---------------------------------------------------------------- 결과물
@@ -511,6 +560,7 @@ def write_outputs(con, out_dir):
                       f"{', '.join(f'{x} {n / len(ks):.0%}' for x, n in hits.most_common(6)) or '없음'}")
     print(f"\n신규 패턴 후보 {len(novel):,}종 (세션 {sum(r['n_sessions'] for r in novel):,}개)")
     print(f"저장: ml_clusters 표, {out_dir}/session_clusters.csv, cluster_summary.csv, novel_candidates.csv")
+    return novel
 
 
 def main():
@@ -525,12 +575,14 @@ def main():
                         help=f"fit: 같은 시퀀스 최대 복제 수 (기본 {MAX_COPIES}, 0 = 세션 전부)")
     parser.add_argument("--ip-cap", type=int, default=IP_CAP,
                         help=f"fit: 같은 (src_ip, 시퀀스)를 최대 몇 세션까지 셀지 (기본 {IP_CAP}, 0 = 제한 없음)")
+    parser.add_argument("--settle-minutes", type=int, default=SETTLE_MINUTES,
+                        help=f"assign: 마지막 이벤트 기준 이 시간(분) 안에 끝난 세션은 다음 실행으로 미룸 (기본 {SETTLE_MINUTES})")
     args = parser.parse_args()
     con = sqlite3.connect(args.db)
     if args.command == "fit":
         fit(con, args.out, args.models, args.mcs, args.ms, args.max_copies, args.ip_cap)
     else:
-        assign(con, args.out, args.models)
+        assign(con, args.out, args.models, args.settle_minutes)
     con.close()
 
 
